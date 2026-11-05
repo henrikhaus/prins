@@ -2,12 +2,20 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+@import "@fontsource-variable/doto";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: "Geist Variable", sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-dot: "Doto Variable", "Geist Mono Variable", monospace;
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-hot: var(--hot);
+  --color-hot-foreground: var(--hot-foreground);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -128,81 +136,415 @@
     @apply font-sans;
   }
 }
-/* --- Prins -------------------------------------------------------------------------- */
+/* --- Prins: "Ink" ---------------------------------------------------------------------
+   The device prints in one bit, so this does too: paper, ink and hairlines. Colour only
+   appears where it means the same thing as a key on the device. */
 
 :root {
-  --background: oklch(0.975 0.006 85);
-  --foreground: oklch(0.22 0.012 70);
-  --card: oklch(0.995 0.002 85);
-  --card-foreground: oklch(0.22 0.012 70);
-  --popover: oklch(0.995 0.002 85);
-  --popover-foreground: oklch(0.22 0.012 70);
-  --primary: oklch(0.22 0.012 70);
-  --primary-foreground: oklch(0.98 0.004 85);
-  --secondary: oklch(0.935 0.008 85);
-  --secondary-foreground: oklch(0.22 0.012 70);
-  --muted: oklch(0.945 0.008 85);
-  --muted-foreground: oklch(0.47 0.012 70);
-  --accent: oklch(0.935 0.008 85);
-  --accent-foreground: oklch(0.22 0.012 70);
-  --border: oklch(0.9 0.008 85);
-  --input: oklch(0.87 0.008 85);
-  --ring: oklch(0.6 0.02 70);
-  --sidebar: oklch(0.96 0.008 85);
-  --sidebar-foreground: oklch(0.22 0.012 70);
-  --sidebar-accent: oklch(0.915 0.01 85);
-  --sidebar-accent-foreground: oklch(0.22 0.012 70);
-  --sidebar-border: oklch(0.9 0.008 85);
+  --background: #f5f0ea;
+  --foreground: #2a1f19;
+  --card: #fbf8f4;
+  --card-foreground: #2a1f19;
+  --popover: #fbf8f4;
+  --popover-foreground: #2a1f19;
+  --primary: #704a34;
+  --primary-foreground: #fbf6ef;
+  --secondary: #e9e0d6;
+  --secondary-foreground: #2a1f19;
+  --muted: #eee6dd;
+  --muted-foreground: #6f5f54;
+  --accent: #e6dbcf;
+  --accent-foreground: #2a1f19;
+  --destructive: #b23a22;
+  --border: rgb(42 31 25 / 13%);
+  --input: rgb(42 31 25 / 22%);
+  --ring: #704a34;
+  --radius: 0.875rem;
 
-  /* Chart series: validated with the dataviz palette checker, in this order. */
-  --viz-1: #2a78d6;
-  --viz-2: #eb6834;
-  --viz-3: #1baf7a;
+  /* The two brand colours: a warm brown, and the sand of old paper. */
+  --brand: #704a34;
+  --brand-foreground: #f7efe6;
+  --hot: #ecd3ad;
+  --hot-foreground: #2a1f19;
+
+  /* The device's keys. These mean the same thing here as they do on the hardware. */
+  --key-print: #2f7d55;
+  --key-dismiss: #b23a22;
+
+  --tex-ink: var(--primary);
+  --tex-dots: var(--foreground);
 }
 
 .dark {
-  --background: oklch(0.19 0.006 70);
-  --foreground: oklch(0.95 0.006 85);
-  --card: oklch(0.225 0.006 70);
-  --card-foreground: oklch(0.95 0.006 85);
-  --popover: oklch(0.25 0.006 70);
-  --popover-foreground: oklch(0.95 0.006 85);
-  --primary: oklch(0.95 0.006 85);
-  --primary-foreground: oklch(0.2 0.006 70);
-  --secondary: oklch(0.29 0.006 70);
-  --secondary-foreground: oklch(0.95 0.006 85);
-  --muted: oklch(0.27 0.006 70);
-  --muted-foreground: oklch(0.74 0.008 85);
-  --accent: oklch(0.29 0.006 70);
-  --accent-foreground: oklch(0.95 0.006 85);
-  --border: oklch(1 0 0 / 11%);
-  --input: oklch(1 0 0 / 16%);
-  --ring: oklch(0.6 0.01 85);
-  --sidebar: oklch(0.205 0.006 70);
-  --sidebar-foreground: oklch(0.95 0.006 85);
-  --sidebar-accent: oklch(0.29 0.006 70);
-  --sidebar-accent-foreground: oklch(0.95 0.006 85);
-  --sidebar-border: oklch(1 0 0 / 11%);
+  --background: #241b16;
+  --foreground: #eee4d9;
+  --card: #2f241e;
+  --card-foreground: #eee4d9;
+  --popover: #3a2c25;
+  --popover-foreground: #eee4d9;
+  --primary: #d9b48f;
+  --primary-foreground: #241b16;
+  --secondary: #3a2d26;
+  --secondary-foreground: #eee4d9;
+  --muted: #33271f;
+  --muted-foreground: #b3a294;
+  --accent: #40322a;
+  --accent-foreground: #eee4d9;
+  --destructive: #e8866f;
+  --border: rgb(238 228 217 / 13%);
+  --input: rgb(238 228 217 / 20%);
+  --ring: #d9b48f;
 
-  --viz-1: #3987e5;
-  --viz-2: #d95926;
-  --viz-3: #199e70;
+  --key-print: #6cc596;
+  --key-dismiss: #e8866f;
 }
 
-/* The printed note. It stays black on white in dark mode, because that's what it looks like. */
-.note-paper {
-  background: #fffefb;
-  color: #111;
-  box-shadow:
-    0 1px 2px rgb(40 30 10 / 12%),
-    0 8px 20px -8px rgb(40 30 10 / 22%);
+/* On the brown stage, charts draw in sand and cream. */
+.on-brand {
+  --tex-ink: var(--hot);
+  --tex-dots: #f7efe6;
+  --foreground: #f7efe6;
+  --muted-foreground: rgb(247 239 230 / 80%);
+  --ring: var(--hot);
 }
 
-.logo-note {
-  display: inline-block;
-  width: 0.85rem;
-  height: 1.05rem;
-  border-radius: 2px;
-  background: #f4c542;
-  transform: rotate(-4deg);
+body {
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: var(--hot);
+  color: var(--hot-foreground);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Focus lands on a dialog so the keyboard starts inside it. That isn't worth a ring. */
+[role="dialog"]:focus-visible,
+[role="menu"]:focus-visible,
+[role="listbox"]:focus-visible {
+  outline: none;
+}
+
+input[type="search"]::-webkit-search-cancel-button {
+  display: none;
+}
+
+/* Laptop screens: the note gives way, so Print is never below the fold. */
+@custom-variant short (@media (min-width: 64rem) and (max-height: 800px));
+
+@layer components {
+  /* The dot-matrix numerals: as big as they can be, and only ever numbers or a single word. */
+  .font-dot {
+    font-family: var(--font-dot);
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+    line-height: 0.86;
+  }
+
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+  }
+
+  /* The printed note. It stays black on white in dark mode, because that's what it looks like. */
+  .note-paper {
+    background: #fffefb;
+    color: #111;
+  }
+
+  /* The notes underneath are bare paper edges, so nothing shows through from their content. */
+  .note-under {
+    background: #d8c6b3;
+  }
+
+  .note-shadow {
+    filter: drop-shadow(0 1px 1px rgb(30 18 10 / 20%)) drop-shadow(0 10px 18px rgb(30 18 10 / 26%));
+  }
+
+  /* The serrated edge the tear bar leaves. Sized to the note, so it scales with it. */
+  .note-tear {
+    --tooth: 2.4cqw;
+    mask:
+      conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom /
+        var(--tooth) 51% repeat-x,
+      linear-gradient(#000 0 0) top / 100% calc(100% - var(--tooth) / 2) no-repeat;
+  }
+
+  /* Chart fills differ by texture as well as colour, so they survive colour blindness and print. */
+  .tex-printed {
+    background: var(--tex-ink);
+  }
+
+  .tex-dismissed {
+    background: repeating-linear-gradient(-45deg, var(--tex-ink) 0 1.5px, transparent 1.5px 4px);
+  }
+
+  .tex-filtered {
+    background-image: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--tex-dots) 65%, transparent) 0.9px,
+      transparent 1.1px
+    );
+    background-size: 4px 4px;
+  }
+
+  .tex-waiting {
+    box-shadow: inset 0 0 0 1px var(--tex-dots);
+  }
+
+  .logo-note {
+    display: inline-block;
+    width: 0.72rem;
+    height: 0.92rem;
+    background: var(--primary);
+    transform: rotate(-5deg);
+    mask:
+      conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) bottom / 0.24rem
+        51% repeat-x,
+      linear-gradient(#000 0 0) top / 100% calc(100% - 0.12rem) no-repeat;
+  }
+
+  .live-dot {
+    position: relative;
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: none;
+    border-radius: 50%;
+    background: var(--muted-foreground);
+  }
+
+  .live-dot[data-online="true"] {
+    background: var(--key-print);
+  }
+
+  .live-dot[data-online="true"]::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--key-print);
+    animation: live-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes live-ping {
+    70%,
+    100% {
+      transform: scale(2.8);
+      opacity: 0;
+    }
+  }
+
+  .key-dot {
+    display: inline-block;
+    width: 0.5rem;
+    height: 0.5rem;
+    flex: none;
+    border-radius: 50%;
+  }
+
+  .kbd {
+    display: inline-flex;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    align-items: center;
+    justify-content: center;
+    padding-inline: 0.25rem;
+    border-radius: 0.3rem;
+    border: 1px solid currentColor;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    line-height: 1;
+    opacity: 0.55;
+  }
+}
+
+/* --- Motion. Every animation shows where something went, or what just happened. ---------- */
+
+/* A note leaves the stack the way it would leave the device. */
+@keyframes note-print-out {
+  to {
+    transform: translateY(-115%) rotate(-1.5deg);
+    opacity: 0;
+  }
+}
+
+@keyframes note-dismiss-out {
+  to {
+    transform: translateX(-125%) rotate(-11deg);
+    opacity: 0;
+  }
+}
+
+/* And arrives by feeding out of the slot, top edge first. */
+@keyframes note-feed {
+  from {
+    clip-path: inset(0 -20% 100% -20%);
+    transform: translateY(-14px);
+  }
+  to {
+    clip-path: inset(-20% -20% -20% -20%);
+    transform: none;
+  }
+}
+
+.note-feed {
+  animation: note-feed 0.9s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+/* The stage answers a print with one soft flash of yellow. */
+@keyframes stage-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  25% {
+    opacity: 0.55;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+.stage-flash {
+  position: absolute;
+  inset: -25%;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(closest-side, var(--hot), transparent);
+  animation: stage-flash 0.8s ease-out forwards;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.rise-in {
+  animation: rise-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* Charts draw themselves once, when the page opens. */
+@keyframes grow-up {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.grow-up {
+  transform-origin: bottom;
+  animation: grow-up 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 28ms);
+}
+
+@keyframes grow-x {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.grow-x {
+  animation: grow-x 0.9s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+
+@keyframes wire-x {
+  to {
+    background-position-x: 32px;
+  }
+}
+
+@keyframes wire-y {
+  to {
+    background-position-y: 32px;
+  }
+}
+
+@keyframes toast-drain {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Moving between pages is a quick crossfade. The top bar and tabs stay put, so the pill can slide. */
+.shell-top {
+  view-transition-name: shell-top;
+}
+
+.shell-tabs {
+  view-transition-name: shell-tabs;
+}
+
+::view-transition-old(root) {
+  animation: 120ms ease-out both vt-out;
+}
+
+::view-transition-new(root) {
+  animation: 240ms ease-out both vt-in;
+}
+
+::view-transition-old(shell-top),
+::view-transition-old(shell-tabs) {
+  display: none;
+}
+
+::view-transition-new(shell-top),
+::view-transition-new(shell-tabs) {
+  animation: none;
+}
+
+@keyframes vt-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes vt-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Dialogs and menus settle into place rather than appearing. */
+[data-slot="dialog-content"] {
+  transition:
+    transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.2s ease;
+}
+
+[data-slot="button"]:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 1ms !important;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+  }
 }

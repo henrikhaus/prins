@@ -12,12 +12,15 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as DemoRouteImport } from './routes/demo'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PresentationRouteImport } from './routes/presentation'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
+import { Route as AppActivityRouteImport } from './routes/_app/activity'
 import { Route as AppDevicesRouteImport } from './routes/_app/devices'
 import { Route as AppFriendsRouteImport } from './routes/_app/friends'
 import { Route as AppHistoryRouteImport } from './routes/_app/history'
 import { Route as AppProductRouteImport } from './routes/_app/product'
 import { Route as AppQueueRouteImport } from './routes/_app/queue'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiDeviceFriendsRouteImport } from './routes/api/device/friends'
@@ -38,9 +41,19 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PresentationRoute = PresentationRouteImport.update({
+  id: '/presentation',
+  path: '/presentation',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppActivityRoute = AppActivityRouteImport.update({
+  id: '/activity',
+  path: '/activity',
   getParentRoute: () => AppRoute,
 } as any)
 const AppDevicesRoute = AppDevicesRouteImport.update({
@@ -66,6 +79,11 @@ const AppProductRoute = AppProductRouteImport.update({
 const AppQueueRoute = AppQueueRouteImport.update({
   id: '/queue',
   path: '/queue',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -98,11 +116,14 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
+  '/presentation': typeof PresentationRoute
+  '/activity': typeof AppActivityRoute
   '/devices': typeof AppDevicesRoute
   '/friends': typeof AppFriendsRoute
   '/history': typeof AppHistoryRoute
   '/product': typeof AppProductRoute
   '/queue': typeof AppQueueRoute
+  '/settings': typeof AppSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/device/friends': typeof ApiDeviceFriendsRoute
@@ -112,11 +133,14 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
+  '/presentation': typeof PresentationRoute
+  '/activity': typeof AppActivityRoute
   '/devices': typeof AppDevicesRoute
   '/friends': typeof AppFriendsRoute
   '/history': typeof AppHistoryRoute
   '/product': typeof AppProductRoute
   '/queue': typeof AppQueueRoute
+  '/settings': typeof AppSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -129,11 +153,14 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
+  '/presentation': typeof PresentationRoute
+  '/_app/activity': typeof AppActivityRoute
   '/_app/devices': typeof AppDevicesRoute
   '/_app/friends': typeof AppFriendsRoute
   '/_app/history': typeof AppHistoryRoute
   '/_app/product': typeof AppProductRoute
   '/_app/queue': typeof AppQueueRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/api/health': typeof ApiHealthRoute
   '/_app/': typeof AppIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -147,11 +174,14 @@ export interface FileRouteTypes {
     | '/'
     | '/demo'
     | '/login'
+    | '/presentation'
+    | '/activity'
     | '/devices'
     | '/friends'
     | '/history'
     | '/product'
     | '/queue'
+    | '/settings'
     | '/api/health'
     | '/api/auth/$'
     | '/api/device/friends'
@@ -161,11 +191,14 @@ export interface FileRouteTypes {
   to:
     | '/demo'
     | '/login'
+    | '/presentation'
+    | '/activity'
     | '/devices'
     | '/friends'
     | '/history'
     | '/product'
     | '/queue'
+    | '/settings'
     | '/api/health'
     | '/'
     | '/api/auth/$'
@@ -177,11 +210,14 @@ export interface FileRouteTypes {
     | '/_app'
     | '/demo'
     | '/login'
+    | '/presentation'
+    | '/_app/activity'
     | '/_app/devices'
     | '/_app/friends'
     | '/_app/history'
     | '/_app/product'
     | '/_app/queue'
+    | '/_app/settings'
     | '/api/health'
     | '/_app/'
     | '/api/auth/$'
@@ -194,6 +230,7 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   DemoRoute: typeof DemoRoute
   LoginRoute: typeof LoginRoute
+  PresentationRoute: typeof PresentationRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiDeviceFriendsRoute: typeof ApiDeviceFriendsRoute
@@ -224,11 +261,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/presentation': {
+      id: '/presentation'
+      path: '/presentation'
+      fullPath: '/presentation'
+      preLoaderRoute: typeof PresentationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/': {
       id: '/_app/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof AppIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/activity': {
+      id: '/_app/activity'
+      path: '/activity'
+      fullPath: '/activity'
+      preLoaderRoute: typeof AppActivityRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/devices': {
@@ -264,6 +315,13 @@ declare module '@tanstack/react-router' {
       path: '/queue'
       fullPath: '/queue'
       preLoaderRoute: typeof AppQueueRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/api/health': {
@@ -305,20 +363,24 @@ declare module '@tanstack/react-router' {
 }
 
 interface AppRouteChildren {
+  AppActivityRoute: typeof AppActivityRoute
   AppDevicesRoute: typeof AppDevicesRoute
   AppFriendsRoute: typeof AppFriendsRoute
   AppHistoryRoute: typeof AppHistoryRoute
   AppProductRoute: typeof AppProductRoute
   AppQueueRoute: typeof AppQueueRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppActivityRoute: AppActivityRoute,
   AppDevicesRoute: AppDevicesRoute,
   AppFriendsRoute: AppFriendsRoute,
   AppHistoryRoute: AppHistoryRoute,
   AppProductRoute: AppProductRoute,
   AppQueueRoute: AppQueueRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }
 
@@ -328,6 +390,7 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   DemoRoute: DemoRoute,
   LoginRoute: LoginRoute,
+  PresentationRoute: PresentationRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiDeviceFriendsRoute: ApiDeviceFriendsRoute,

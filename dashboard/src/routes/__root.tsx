@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import appCss from "../styles.css?url";
 
 // Runs before paint so a dark-mode reader never sees a light flash.
-const THEME_SCRIPT = `document.documentElement.classList.toggle("dark", matchMedia("(prefers-color-scheme: dark)").matches)`;
+const THEME_SCRIPT = `(function(){var t;try{t=localStorage.getItem("prins-theme")}catch(e){}document.documentElement.classList.toggle("dark",t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))})()`;
 
 export const Route = createRootRoute({
   head: () => ({
@@ -24,10 +24,11 @@ export const Route = createRootRoute({
     scripts: [{ children: THEME_SCRIPT }],
   }),
   notFoundComponent: () => (
-    <main className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-2 p-6">
-      <h1 className="text-2xl font-semibold">Page not found</h1>
-      <Link to="/" className="text-sm underline">
-        Back to the overview
+    <main className="mx-auto flex min-h-svh max-w-md flex-col justify-center gap-4 p-6">
+      <p className="font-dot text-8xl">404</p>
+      <h1 className="text-xl font-medium tracking-tight">This page doesn't exist.</h1>
+      <Link to="/" className="text-sm underline underline-offset-4">
+        Back to your desk
       </Link>
     </main>
   ),
@@ -40,7 +41,7 @@ function RootDocument({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="min-h-svh">
         {children}
         <Scripts />
       </body>

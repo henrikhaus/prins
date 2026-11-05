@@ -30,7 +30,7 @@ function DemoPage() {
         src="/demo/product-3d.html"
         title="Interactive 3D model of the Prins device"
         allow="fullscreen"
-        className="block size-full rounded-2xl border border-white/10 sm:rounded-3xl"
+        className="block size-full rounded-2xl border border-white/10 bg-[#0a0807] sm:rounded-3xl"
       />
     </main>
   );

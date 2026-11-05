@@ -1,8 +1,7 @@
-import { Check, CircleOff, Minus, Wifi } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 
 import type { DeviceStatus } from "@/server/schema";
 
-import { Badge } from "@/components/ui/badge";
 import { timeAgo } from "@/lib/format";
 
 export type DeviceRow = {
@@ -21,34 +20,30 @@ const PRINTER_LABELS: Record<string, string> = {
   serial: "Printer on the Mac",
 };
 
-export function OnlineBadge({ device }: { device: DeviceRow }) {
-  if (device.online) {
-    return (
-      <Badge variant="secondary">
-        <Wifi aria-hidden />
-        Online
-      </Badge>
-    );
-  }
+export function OnlineLabel({ device }: { device: DeviceRow }) {
   return (
-    <Badge variant="outline">
-      <CircleOff aria-hidden />
-      {/* Relative to now, so the server and the browser can differ by a moment. */}
-      <span suppressHydrationWarning>
-        {device.lastSeenAt ? `Seen ${timeAgo(device.lastSeenAt)}` : "Never connected"}
-      </span>
-    </Badge>
+    <span className="flex items-center gap-2 text-sm">
+      <span className="live-dot" data-online={device.online} aria-hidden />
+      {device.online ? (
+        "Online"
+      ) : (
+        // Relative to now, so the server and the browser can differ by a moment.
+        <span className="text-muted-foreground" suppressHydrationWarning>
+          {device.lastSeenAt ? `Last seen ${timeAgo(device.lastSeenAt)}` : "Never connected"}
+        </span>
+      )}
+    </span>
   );
 }
 
 export function StatusList({ device }: { device: DeviceRow }) {
   const status = device.status;
   if (!status) {
-    return <p className="text-sm text-muted-foreground">Waiting for the first connection.</p>;
+    return null;
   }
-  const rows = [
+  const rows: { label: string; ok: boolean; value: string; hint?: string }[] = [
     {
-      label: "Board",
+      label: "Hardware",
       ok: status.deviceKind === "atech",
       value: status.deviceKind === "atech" ? "Connected" : "Simulated",
     },
@@ -60,24 +55,44 @@ export function StatusList({ device }: { device: DeviceRow }) {
     {
       label: "Dictation",
       ok: status.handyInstalled,
-      value: status.handyInstalled ? "Handy ready" : "Not installed",
+      value: status.handyInstalled ? "Ready" : "Not installed",
+      hint: status.handyInstalled ? undefined : "Install Handy on your Mac to talk to your Prins.",
     },
-    { label: "Slack", ok: status.slack, value: status.slack ? "Connected" : "Not set up" },
-    { label: "Email", ok: status.email, value: status.email ? "Connected" : "Not set up" },
+    {
+      label: "Slack",
+      ok: status.slack,
+      value: status.slack ? "Connected" : "Not set up",
+      hint: status.slack ? undefined : "Add your SLACK_ tokens to the .env on your Mac.",
+    },
+    {
+      label: "Email",
+      ok: status.email,
+      value: status.email ? "Connected" : "Not set up",
+      hint: status.email ? undefined : "Add your PRINS_IMAP_ details to the .env on your Mac.",
+    },
   ];
   return (
-    <dl className="flex flex-col gap-2 text-sm">
+    <dl className="grid gap-x-10 sm:grid-cols-2">
       {rows.map((row) => (
-        <div key={row.label} className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">{row.label}</dt>
-          <dd className="flex items-center gap-1.5 text-right">
-            {row.ok ? (
-              <Check className="size-3.5 shrink-0" aria-hidden />
-            ) : (
-              <Minus className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            )}
-            {row.value}
-          </dd>
+        <div key={row.label} className="border-t py-2.5 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <dt className="text-muted-foreground">{row.label}</dt>
+            <dd
+              className={`flex items-center gap-1.5 text-right ${row.ok ? "" : "text-muted-foreground"}`}
+            >
+              {row.ok ? (
+                <Check
+                  className="size-3.5 shrink-0"
+                  style={{ color: "var(--key-print)" }}
+                  aria-hidden
+                />
+              ) : (
+                <Minus className="size-3.5 shrink-0" aria-hidden />
+              )}
+              {row.value}
+            </dd>
+          </div>
+          {row.hint ? <dd className="mt-1 text-xs text-muted-foreground">{row.hint}</dd> : null}
         </div>
       ))}
     </dl>

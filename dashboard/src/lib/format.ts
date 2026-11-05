@@ -37,6 +37,28 @@ export function formatDateTime(date: Date) {
   return `${part.day} ${part.month}, ${part.hour}:${part.minute}`;
 }
 
+const clock = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  timeZone: TIME_ZONE,
+});
+export function formatTime(date: Date) {
+  const part = Object.fromEntries(clock.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${part.hour}:${part.minute}`;
+}
+
+const dayOf = new Intl.DateTimeFormat("en-GB", {
+  weekday: "long",
+  day: "numeric",
+  month: "long",
+  timeZone: TIME_ZONE,
+});
+/** A heading for a day of history, such as "Thursday 5 November". */
+export function formatDayHeading(date: Date) {
+  const part = Object.fromEntries(dayOf.formatToParts(date).map((p) => [p.type, p.value]));
+  return `${part.weekday} ${part.day} ${part.month}`;
+}
+
 const shortDay = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",

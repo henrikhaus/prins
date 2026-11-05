@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Prins</title>
+<meta name="description" content="Your inbox and your voice, turned into sticky notes you approve with a button.">
+<meta name="theme-color" content="#0a0807">
+<style>
+/* Archivo, SIL Open Font License 1.1. three.js r187, MIT. Light and text effects adapted from React Bits, MIT + Commons Clause, copyright (c) 2026 David Haz. Everything is inlined so this file runs from file:// with no network. */
+/*__FONTS__*/
+:root { --ink: #f4e9d8; --ink-soft: rgba(244,233,216,.62); --bg: #0a0807; --ease: cubic-bezier(.16,1,.3,1); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+  font-family: Archivo, "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased; }
+#atmos { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 0; }
+#stage { position: fixed; inset: 0; z-index: 2; width: 100%; height: 100%; display: block; touch-action: none;
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent;
+  outline: none; opacity: 0; transition: opacity 1.4s ease .15s; }
+.ready #stage { opacity: 1; }
+.chrome { z-index: 3; transition: opacity .25s ease; position: fixed; pointer-events: none; left: max(32px, env(safe-area-inset-left)); right: max(32px, env(safe-area-inset-right)); }
+.head { top: max(26px, env(safe-area-inset-top)); }
+.head { display: flex; justify-content: space-between; align-items: center; }
+.signin { pointer-events: auto; color: var(--ink); font-size: 14px; font-weight: 500; text-decoration: none; padding: 8px 14px; border: 1px solid rgba(244,233,216,.35); border-radius: 99px; }
+.signin:hover { background: rgba(244,233,216,.1); }
+.in-app .head { display: none; }
+.stage-only, .stage-only body { background: transparent; }
+.stage-only #atmos, .stage-only .chrome { display: none; }
+h1 { margin: 0; font-size: 22px; line-height: 1.1; font-weight: 700; letter-spacing: -.02em; }
+.foot { bottom: max(26px, env(safe-area-inset-bottom)); display: flex; justify-content: space-between; align-items: flex-end; gap: 32px; }
+.pitch { margin: 0; max-width: 21em; font-size: clamp(17px, 1.62vw, 25px); line-height: 1.22; font-weight: 400; letter-spacing: -.016em; color: var(--ink); text-wrap: balance; }
+.pitch span { display: inline-block; opacity: 0; animation: word-in 1s var(--ease) forwards; animation-delay: calc(1.3s + var(--i) * .045s); }
+@keyframes word-in { from { opacity: 0; filter: blur(10px); transform: translateY(8px); } to { opacity: 1; filter: blur(0); transform: none; } }
+.side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; opacity: 0; animation: fade-in 1.2s ease 2.1s forwards; }
+@keyframes fade-in { to { opacity: 1; } }
+.legend { display: flex; gap: 18px; margin: 0; padding: 0; list-style: none; }
+.legend li { display: flex; align-items: center; gap: 7px; }
+.legend i { width: 8px; height: 8px; border-radius: 50%; background: var(--dot); box-shadow: 0 0 10px var(--dot); }
+.legend, .hint, .cap { font-size: 13px; line-height: 1.35; font-weight: 400; color: var(--ink-soft); white-space: nowrap; }
+.hint, .cap { margin: 0; }
+.cap { letter-spacing: .02em; color: rgba(244,233,216,.56); }
+.zoomed .chrome { opacity: 0; }
+.sr { position: fixed; z-index: 5; left: 0; top: 0; width: 1px; height: 1px; padding: 0; border: 0; margin: 0; opacity: 0; overflow: hidden; }
+.sr:focus-visible { opacity: 1; width: auto; height: auto; left: 32px; top: 32px; padding: 8px 12px; overflow: visible; background: var(--ink); color: #14100c; border-radius: 8px; font: 500 14px Archivo, Helvetica, Arial, sans-serif; outline: 2px solid #fff; outline-offset: 2px; }
+.narrow { display: none; }
+.nogl { display: none; position: fixed; inset: 0; z-index: 1; align-items: center; justify-content: center; }
+.nogl img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.no-webgl #stage, .no-webgl #atmos { display: none; }
+.no-webgl .nogl { display: flex; }
+@media (max-width: 760px) {
+  .chrome { left: max(18px, env(safe-area-inset-left)); right: max(18px, env(safe-area-inset-right)); }
+  .foot { bottom: max(16px, env(safe-area-inset-bottom)); flex-direction: column; align-items: stretch; gap: 12px; }
+  .pitch { font-size: 18px; max-width: none; }
+  .side { align-items: flex-start; flex-direction: row; flex-wrap: wrap; justify-content: space-between; gap: 6px 14px; width: 100%; }
+  .legend { gap: 13px; width: 100%; }
+  .wide { display: none; }
+  .narrow { display: inline; }
+  .legend, .hint, .cap { font-size: 12px; }
+}
+@media (max-height: 560px) and (min-width: 761px) {
+  .foot { bottom: 14px; }
+  .pitch { font-size: 15px; }
+  .legend, .hint, .cap { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pitch span, .side { animation: none; opacity: 1; }
+  #stage { transition: none; }
+}
+</style>
+</head>
+<body>
+<script>var q = new URLSearchParams(location.search); if (q.has("app")) document.documentElement.classList.add("in-app"); if (q.has("stage")) document.documentElement.classList.add("stage-only");</script>
+<canvas id="atmos" aria-hidden="true"></canvas>
+<canvas id="stage" aria-label="Interactive 3D model of the Prins desk device. Drag to turn it. The three keys on the device work."></canvas>
+<header class="chrome head"><h1>Prins</h1><a class="signin" href="/login" target="_parent">Sign in</a></header>
+<footer class="chrome foot">
+  <p class="pitch" data-words>Your inbox and your voice, turned into sticky notes you approve with a button.</p>
+  <div class="side">
+    <ul class="legend">
+      <li style="--dot:#5b8cff"><i></i>Hold to talk</li>
+      <li style="--dot:#35d48a"><i></i>Print</li>
+      <li style="--dot:#ff6a4d"><i></i>Dismiss</li>
+    </ul>
+    <p class="hint"><span class="wide">Drag to turn. Rip the note off.</span><span class="narrow">Drag to turn. Rip the note off.</span></p>
+    <p class="cap">Concept design</p>
+  </div>
+</footer>
+<button class="sr" data-key="blue" type="button">Blue key: hold to talk</button>
+<button class="sr" data-key="green" type="button">Green key: print this note</button>
+<button class="sr" data-key="red" type="button">Red key: dismiss</button>
+<div class="nogl"><img id="nogl-img" alt="Prins concept render: a soft cream desk device with a colour screen, three chunky keys and a sticky note rising from a slot on top."></div>
+<script>/*__BUNDLE__*/</script>
+</body>
+</html>

@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 import { formatNumber, sourceLabel } from "@/lib/format";
 
 /** Ranked bars in one hue: the job is comparing sizes, not telling identities apart. */
@@ -7,20 +9,21 @@ export function SourceBars({ data }: { data: { source: string; value: number }[]
   }
   const largest = Math.max(...data.map((row) => row.value));
   return (
-    <ul className="flex flex-col gap-3">
-      {data.map((row) => (
-        <li
-          key={row.source}
-          className="grid grid-cols-[3.5rem_1fr_3rem] items-center gap-2 text-sm"
-        >
-          <span className="truncate text-muted-foreground">{sourceLabel(row.source)}</span>
-          <span className="h-3 overflow-hidden" aria-hidden>
+    <ul className="flex flex-col gap-4">
+      {data.map((row, index) => (
+        <li key={row.source} className="flex flex-col gap-1.5 text-sm">
+          <span className="flex items-baseline justify-between gap-2">
+            <span>{sourceLabel(row.source)}</span>
+            <span className="font-mono text-xs text-muted-foreground tabular-nums">
+              {formatNumber(row.value)}
+            </span>
+          </span>
+          <span className="h-1.5 overflow-hidden" aria-hidden>
             <span
-              className="block h-full rounded-r-[4px]"
-              style={{ width: `${(row.value / largest) * 100}%`, background: "var(--viz-1)" }}
+              className="grow-x block h-full rounded-r-[4px] bg-primary"
+              style={{ width: `${(row.value / largest) * 100}%`, "--i": index } as CSSProperties}
             />
           </span>
-          <span className="text-right tabular-nums">{formatNumber(row.value)}</span>
         </li>
       ))}
     </ul>

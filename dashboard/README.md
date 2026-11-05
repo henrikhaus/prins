@@ -21,7 +21,7 @@ To see it with data but no device:
 DEMO_PASSWORD=choose-one bun run seed
 ```
 
-Then sign in as `demo@prins.henhau.no`. The dashboard labels this as sample data.
+Then sign in as `demo@prins.henhau.no`. The numbers are made up, and nothing on the page says so now, so say it yourself when you show it.
 
 ## Friends
 
@@ -77,9 +77,19 @@ bun run check      # oxlint, oxfmt, tsc, tests
 
 `/demo` shows the 3D model full screen with no login, to send to potential customers: https://prins.henhau.no/demo. It only shows the concept model. It's labelled as a concept design, so keep it that way until the real thing matches.
 
+The page is built from `demo/product-3d/src`: `atmosphere.js` draws the light and `main.js` is the model. Run `node demo/product-3d/src/build.mjs <tools dir>`, where the tools dir has `three@0.187.0`, `esbuild` and `@fontsource/archivo` installed. Then copy `demo/product-3d/index.html` to `public/demo/product-3d.html`. The light and text effects are adapted from [React Bits](https://reactbits.dev) under its MIT + Commons Clause license, so we can use them in the product but can't sell or redistribute them as components.
+
+## Design
+
+Warm brown (`#704A34`) and sand, with notes always black on paper. The desk is home: one note at a time, and a decision waits 5 seconds before it reaches the server, so it can be undone. Effects are adapted from React Bits (PatternWaves, CountUp, PillNav, Stack), under the same license as above. All motion respects reduced-motion.
+
+## Presentation
+
+`/presentation` is a five-slide deck with the live 3D model, public like `/demo`. Use the arrow keys or click to move, and press F for full screen.
+
 ## Temporary
 
-The **3D model** page shows the concept render for demos. `public/demo/product-3d.html` is a copy of `demo/product-3d/index.html`. To remove it, delete `src/routes/_app/product.tsx`, its entry in `src/components/app-shell.tsx`, and `public/demo/`.
+The **3D model** page (account menu, or a link on Devices) shows the concept render for demos. `public/demo/product-3d.html` is a copy of `demo/product-3d/index.html`. To remove it, delete `src/routes/_app/product.tsx`, its entry in `src/components/app-shell.tsx`, and `public/demo/`.
 
 ## Worth knowing
 

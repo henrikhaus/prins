@@ -1,15 +1,25 @@
+import type { CSSProperties } from "react";
+
 import { formatDay, formatNumber, niceCeiling } from "@/lib/format";
 
 type Day = { day: string; printed: number; dismissed: number; ignored: number };
 
 // Stacked from the baseline up. Colour follows the outcome, never its size.
+// One bit, like the printer: outcomes differ by texture, so they survive colour blindness and print.
+export const OUTCOME_TEXTURES = {
+  printed: "tex-printed",
+  dismissed: "tex-dismissed",
+  ignored: "tex-filtered",
+  queued: "tex-waiting",
+} as const;
+
 const SERIES = [
-  { key: "ignored", label: "Filtered by the model", color: "var(--viz-3)" },
-  { key: "dismissed", label: "Dismissed", color: "var(--viz-2)" },
-  { key: "printed", label: "Printed", color: "var(--viz-1)" },
+  { key: "printed", label: "Printed", texture: OUTCOME_TEXTURES.printed },
+  { key: "dismissed", label: "Dismissed", texture: OUTCOME_TEXTURES.dismissed },
+  { key: "ignored", label: "Filtered by AI", texture: OUTCOME_TEXTURES.ignored },
 ] as const;
 
-const PLOT_HEIGHT = 180;
+const PLOT_HEIGHT = 170;
 
 export function DecisionsChart({ data }: { data: Day[] }) {
   const totals = data.map((day) => day.printed + day.dismissed + day.ignored);
@@ -21,11 +31,7 @@ export function DecisionsChart({ data }: { data: Day[] }) {
       <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         {SERIES.map((series) => (
           <li key={series.key} className="flex items-center gap-1.5">
-            <span
-              className="size-2.5 rounded-[2px]"
-              style={{ background: series.color }}
-              aria-hidden
-            />
+            <span className={`size-3 rounded-[2px] ${series.texture}`} aria-hidden />
             {series.label}
           </li>
         ))}
@@ -33,7 +39,7 @@ export function DecisionsChart({ data }: { data: Day[] }) {
 
       <div className="grid grid-cols-[auto_1fr] gap-x-2">
         <div
-          className="relative w-7 text-right text-xs text-muted-foreground"
+          className="relative w-7 text-right font-mono text-[0.6875rem] text-muted-foreground"
           style={{ height: PLOT_HEIGHT }}
         >
           {ticks.map((tick) => (
@@ -64,7 +70,7 @@ export function DecisionsChart({ data }: { data: Day[] }) {
         </div>
 
         <div />
-        <div className="mt-1.5 flex text-xs text-muted-foreground">
+        <div className="mt-1.5 flex font-mono text-[0.6875rem] text-muted-foreground">
           {data.map((day, index) => (
             <span key={day.day} className="relative h-4 flex-1 text-center">
               {index === 0 || index === data.length - 1 || index === Math.floor(data.length / 2) ? (
@@ -135,13 +141,16 @@ function Column({
       className="group relative flex h-full flex-1 cursor-default flex-col items-center justify-end rounded-sm outline-none hover:bg-foreground/[0.04] focus-visible:bg-foreground/[0.06]"
       aria-label={summary}
     >
-      <div className="flex w-[62%] max-w-6 flex-col-reverse gap-0.5">
+      <div
+        className="grow-up flex w-[70%] max-w-6 flex-col-reverse gap-0.5"
+        style={{ "--i": index } as CSSProperties}
+      >
         {visible.map((series, segment) => (
           <div
             key={series.key}
+            className={series.texture}
             style={{
               height: Math.max((day[series.key] / top) * PLOT_HEIGHT - 2, 2),
-              background: series.color,
               // Only the end of the bar is rounded. The baseline stays square.
               borderRadius: segment === visible.length - 1 ? "4px 4px 0 0" : 0,
             }}
@@ -156,11 +165,7 @@ function Column({
         {[...SERIES].reverse().map((series) => (
           <p key={series.key} className="flex items-center justify-between gap-2">
             <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span
-                className="size-2 rounded-[2px]"
-                style={{ background: series.color }}
-                aria-hidden
-              />
+              <span className={`size-2.5 rounded-[2px] ${series.texture}`} aria-hidden />
               {series.label}
             </span>
             <span className="tabular-nums">{formatNumber(day[series.key])}</span>
