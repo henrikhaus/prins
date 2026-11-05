@@ -1,0 +1,68 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>M110 canvas</title>
+<style>
+  body { font: 14px system-ui; margin: 24px; background: #f2f2f2; }
+  canvas { background: #fff; border: 1px solid #999; image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+  .bar { margin: 12px 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #msg { margin-top: 8px; font-family: ui-monospace, monospace; }
+</style>
+<h3>M110 label canvas <span id="dim"></span></h3>
+<canvas id="c"></canvas>
+<div class="bar">
+  <label>pen <input id="size" type="range" min="1" max="12" value="3"></label>
+  <label><input id="erase" type="checkbox"> eraser</label>
+  <input id="text" placeholder="text" size="14">
+  <button id="addText">add text</button>
+  <button id="clear">clear</button>
+  <button id="dry">dry run</button>
+  <button id="print">print</button>
+</div>
+<div id="msg"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const c = $("c"), ctx = c.getContext("2d", { willReadFrequently: true });
+const SCALE = 3;
+
+fetch("/canvas").then((r) => r.json()).then((g) => {
+  c.width = g.width; c.height = g.height;
+  c.style.width = g.width * SCALE + "px"; c.style.height = g.height * SCALE + "px";
+  $("dim").textContent = `${g.width} x ${g.height} px`;
+  clear();
+});
+
+function clear() { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); }
+$("clear").onclick = clear;
+
+let last = null;
+const pos = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) / SCALE, (e.clientY - r.top) / SCALE]; };
+function stroke(a, b) {
+  ctx.strokeStyle = $("erase").checked ? "#fff" : "#000";
+  ctx.lineWidth = +$("size").value; ctx.lineCap = "round";
+  ctx.beginPath(); ctx.moveTo(...a); ctx.lineTo(...b); ctx.stroke();
+}
+c.onpointerdown = (e) => { c.setPointerCapture(e.pointerId); last = pos(e); stroke(last, last); };
+c.onpointermove = (e) => { if (!last) return; const p = pos(e); stroke(last, p); last = p; };
+c.onpointerup = () => { last = null; };
+
+$("addText").onclick = () => {
+  ctx.fillStyle = "#000"; ctx.font = "bold 40px system-ui"; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.fillText($("text").value, c.width / 2, c.height / 2);
+};
+
+function pixelsBase64() {
+  const bytes = new Uint8Array(ctx.getImageData(0, 0, c.width, c.height).data.buffer);
+  let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+async function send(dry_run) {
+  $("msg").textContent = dry_run ? "checking..." : "printing...";
+  const r = await fetch("/print", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ width: c.width, height: c.height, format: "rgba", data: pixelsBase64(), dry_run }),
+  });
+  $("msg").textContent = JSON.stringify(await r.json());
+}
+$("dry").onclick = () => send(true);
+$("print").onclick = () => send(false);
+</script>
