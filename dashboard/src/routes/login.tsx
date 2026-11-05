@@ -45,14 +45,6 @@ function LoginPage() {
 
   return (
     <main className="mx-auto flex min-h-svh max-w-sm flex-col justify-center gap-6 px-4 py-10">
-      <div className="note-paper -rotate-1 rounded-[3px] p-5">
-        <p className="text-xs tracking-wide">PRINS</p>
-        <hr className="my-2 border-t-2 border-black" />
-        <p className="text-xl leading-snug font-bold text-balance">
-          200 messages hit your inbox. Five sticky notes reach your desk.
-        </p>
-      </div>
-
       <form onSubmit={submit} className="flex flex-col gap-4">
         <h1 className="text-lg font-semibold">
           {mode === "in" ? "Sign in" : "Create your account"}

@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 const TITLE = "Prins";
-const DESCRIPTION = "200 messages hit your inbox. Five sticky notes reach your desk.";
+const DESCRIPTION =
+  "Your inbox and your voice, turned into sticky notes you approve with a button.";
 const PREVIEW_IMAGE = "https://prins.henhau.no/demo/stills/hero.png";
 
 // Public on purpose: a link to send to potential customers. It sits outside the _app layout,
