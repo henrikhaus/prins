@@ -1,0 +1,66 @@
+id: thermal_printer
+name: "TTL Thermal Printer (ESC/POS)"
+display_name: "Thermal Printer"
+category: actuator
+interface: uart
+size: 1
+description: |
+  Streams ESC/POS bytes from the laptop to a 58 mm TTL thermal printer over a UART port.
+  Bytes go through a RAM queue and leave at a limited rate, because these printers have
+  no usable flow control and drop data if they are sent it faster than they print.
+  TX is on Line A. Line B is unused: leave it unconnected, because the printer's TX line
+  may be 5 V and the ESP32-S3 is a 3.3 V part.
+
+caution: |
+  Never power the printer from a port's 3.3 V pin. It needs its own 5-9 V supply that can
+  deliver about 3 A. Join the supply's ground to the port's GND. Connect only:
+  Line A -> printer RX, GND -> printer GND.
+
+driver:
+  header: thermal_printer.h
+  source: thermal_printer.cpp
+  class_name: ThermalPrinter
+
+templates:
+  globals: |
+    ThermalPrinter {{ instance }}({{ pin_a }});   // TX on Line A
+  setup: |
+    {{ instance }}.begin();
+  loop: |
+    {{ instance }}.update();
+
+events:
+  - key: "{{ instance }}_pending"
+    type: sensor
+    value_type: int
+    description: "Bytes still waiting to go to the printer, sent in answer to {{ instance }}_status."
+
+actions:
+  - key: "{{ instance }}_write"
+    value_type: string
+    description: "Queue base64-encoded ESC/POS bytes (at most 2400 bytes decoded per action). Fails with 'busy' when the queue is too full: wait and send the same chunk again."
+    handler: |
+      const char* _err = {{ instance }}.enqueueBase64(value);
+      if (_err) atechFail(_err);
+  - key: "{{ instance }}_config"
+    value_type: json
+    description: 'Set the link: {"baud":9600,"bytes_per_sec":900}. Read the baud from the printer''s self-test page.'
+    handler: |
+      long _baud = atechNum(value, "baud", 0), _rate = atechNum(value, "bytes_per_sec", 0);
+      if (_baud < 0 || _rate < 0) atechFail("baud and bytes_per_sec must be positive");
+      else {{ instance }}.configure(_baud, _rate);
+  - key: "{{ instance }}_status"
+    value_type: "null"
+    description: "Answers with the event {{ instance }}_pending, the number of bytes still queued."
+    handler: |
+      Serial.printf("{\"type\":\"event\",\"payload\":{\"event_type\":\"sensor\",\"key\":\"{{ instance }}_pending\",\"value\":%u,\"source\":\"thermal_printer\"}}\n", (unsigned){{ instance }}.pending());
+  - key: "{{ instance }}_cancel"
+    value_type: "null"
+    description: "Drop everything still queued."
+    handler: |
+      {{ instance }}.cancel();
+
+usage: |
+  // Public API of ThermalPrinter — the instance is `{{ instance }}`.
+  // The laptop normally drives it with the actions above. update() runs from the generated loop.
+  size_t waiting = {{ instance }}.pending();
