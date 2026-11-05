@@ -35,13 +35,15 @@ class Engine:
         device: Device,
         printer: Printer,
         dictation: Dictation,
-        note_width: int = 384,
         clock=time.monotonic,
         synchronous: bool = False,
+        designer=None,
+        agent_auto_print: bool = False,
     ) -> None:
         self.store, self.triage, self.device = store, triage, device
         self.printer, self.dictation = printer, dictation
-        self.note_width = note_width
+        self.designer = designer
+        self.agent_auto_print = agent_auto_print
         self.clock = clock
         self._lock = threading.RLock()
         self._current_id: Optional[int] = None
@@ -103,6 +105,29 @@ class Engine:
                 self._pending_triage -= 1
             self.refresh()
 
+    def add_note(
+        self,
+        *,
+        source: str,
+        sender: str,
+        title: str,
+        detail: str = "",
+        bitmap: Optional[str] = None,
+        external_id: Optional[str] = None,
+    ) -> str:
+        """A finished note that needs no triage. Returns what happened, in words."""
+        item_id = self.store.add(
+            source=source, sender=sender, raw_text=title, title=title, detail=detail,
+            engine="direct", external_id=external_id, bitmap=bitmap,
+        )
+        self.refresh()
+        if item_id is None:
+            return "Already in the queue."
+        # Your own agent can skip the button if you've turned that on. Friends never can.
+        if source == "agent" and self.agent_auto_print and self.remote_decide(item_id, "print"):
+            return "Printing."
+        return "In the queue. Press the green button on the device to print it."
+
     def hook_transcript(self, text: str) -> str:
         """Called by Handy's hook. Returns what Handy should paste.
 
@@ -121,10 +146,13 @@ class Engine:
     def _triage_dictation(self, text: str) -> None:
         try:
             for note in self.triage.dictation(text):
+                bitmap = None
+                if note.design_brief and self.designer is not None:
+                    bitmap = self.designer.design(note.design_brief)
                 self.store.add(
                     source="voice", sender="", raw_text=text, title=note.title,
                     detail=note.detail, priority=note.priority, due=note.due,
-                    engine=note.engine,
+                    engine=note.engine, bitmap=bitmap,
                 )
         finally:
             with self._lock:
@@ -178,12 +206,14 @@ class Engine:
 
     def _print(self, item: Item) -> None:
         try:
-            image = render_note(item, self.note_width)
+            image = render_note(item)
             described = self.printer.print_image(image, f"note-{item.id}")
             self.store.decide(item.id, PRINTED)
             log.info("Printed note %s: %s", item.id, described)
             with self._lock:
-                self._current_id = None
+                # A note printed from the web may not be the one on screen.
+                if self._current_id == item.id:
+                    self._current_id = None
         except PrintError as exc:
             # The note stays queued and on the screen, so nothing is lost.
             log.error("Print failed for note %s: %s", item.id, exc)
@@ -201,6 +231,29 @@ class Engine:
             self.store.decide(self._current_id, DISMISSED)
             self._current_id = None
         self.refresh()
+
+    def remote_decide(self, item_id: int, action: str) -> bool:
+        """A decision made on the dashboard. Returns False if the device is busy: try again.
+
+        Safe to repeat. A note that is no longer queued is left alone, so a command delivered
+        twice can't print twice.
+        """
+        with self._lock:
+            item = self.store.get(item_id)
+            if item is None or item.status != "queued":
+                return True
+            if self._mode != "idle":
+                return False
+            if action == "dismiss":
+                self.store.decide(item_id, DISMISSED)
+                if self._current_id == item_id:
+                    self._current_id = None
+            else:
+                self._mode = "printing"
+        self.refresh()
+        if action != "dismiss":
+            self._submit(self._print, item)
+        return True
 
     # --- the screen -------------------------------------------------------------------
 
@@ -251,7 +304,7 @@ class Engine:
             if self._pending_triage:
                 detail = "Reading new messages..."
             return CardView("idle", "", "All clear", detail, 0, hint="Blue: hold to talk")
-        return CardView(item.source, item.sender, item.title, item.detail, self.store.queue_size())
+        return CardView(item.source, item.sender, item.title, item.detail, self.store.queue_size(), bitmap=item.bitmap or "")
 
     def state(self) -> dict:
         with self._lock:

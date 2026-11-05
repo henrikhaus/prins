@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import threading
 import time
@@ -12,6 +13,7 @@ from typing import Callable, Optional, Protocol
 log = logging.getLogger(__name__)
 
 _RESEND_S = 15.0
+DESIGN_CHUNK_BYTES = 2400
 
 BUTTONS = ("talk", "confirm", "dismiss")
 ButtonHandler = Callable[[str, bool], None]  # (button name, is it now pressed)
@@ -40,6 +42,7 @@ ACCENTS = {
     "email": rgb565(90, 170, 255),
     "voice": rgb565(255, 170, 60),
     "agent": rgb565(80, 220, 140),
+    "friend": rgb565(255, 130, 180),
     "idle": rgb565(90, 90, 90),
     "listening": rgb565(255, 90, 90),
     "thinking": rgb565(255, 200, 60),
@@ -57,6 +60,7 @@ class CardView:
     detail: str
     queue: int
     hint: str = "Green: print    Red: dismiss"
+    bitmap: str = ""  # A custom design: the screen shows the note itself, so you see what you approve.
 
     def payload(self) -> dict:
         return {
@@ -67,6 +71,7 @@ class CardView:
             "hint": screen_text(self.hint, 60),
             "queue": self.queue,
             "accent": ACCENTS.get(self.source, _DEFAULT_ACCENT),
+            "design": 1 if self.bitmap else 0,
         }
 
 
@@ -135,6 +140,8 @@ class AtechDevice:
             return
         key = "ui_card" if isinstance(view, CardView) else "ui_status"
         try:
+            if isinstance(view, CardView) and view.bitmap:
+                self._send_design(view.bitmap)
             self.call(key, view.payload())
             self._last_view, self._last_sent = view, now
             if not self._last_ok:
@@ -145,6 +152,13 @@ class AtechDevice:
             if self._last_ok:
                 log.warning("Could not update the screen: %s", exc)
             self._last_ok = False
+
+    def _send_design(self, bitmap: str) -> None:
+        """A note is too big for one line of the protocol, so it goes in pieces."""
+        packed = base64.b64decode(bitmap)
+        for offset in range(0, len(packed), DESIGN_CHUNK_BYTES):
+            piece = base64.b64encode(packed[offset : offset + DESIGN_CHUNK_BYTES]).decode("ascii")
+            self.call("ui_design", {"o": offset, "d": piece})
 
     def close(self) -> None:
         self._stop.set()
@@ -188,7 +202,8 @@ class SimDevice:
         else:
             origin = view.source.upper() + (f" - {view.sender}" if view.sender else "")
             head = f"{origin[:width - 10]:<{width - 10}}[queue {view.queue}]"
-            lines = [f"  {view.title}", f"  {view.detail}" if view.detail else "", f"  {view.hint}"]
+            detail = "(custom design)" if view.bitmap else view.detail
+            lines = [f"  {view.title}", f"  {detail}" if detail else "", f"  {view.hint}"]
         rule = "+" + "-" * (width + 2) + "+"
         body = "\n".join(f"| {line[:width]:<{width}} |" for line in lines)
         return f"{rule}\n| {head[:width]:<{width}} |\n{rule}\n{body}\n{rule}"

@@ -28,6 +28,9 @@ CREATE TABLE IF NOT EXISTS items (
     external_id TEXT,
     created_at REAL NOT NULL,
     decided_at REAL,
+    revision INTEGER NOT NULL DEFAULT 1,
+    synced_revision INTEGER NOT NULL DEFAULT 0,
+    bitmap TEXT,
     UNIQUE (source, external_id)
 );
 CREATE INDEX IF NOT EXISTS items_status ON items (status);
@@ -48,6 +51,9 @@ class Item:
     status: str
     engine: str
     created_at: float
+    decided_at: Optional[float] = None
+    revision: int = 1
+    bitmap: Optional[str] = None  # A custom design. Without one, the plain layout is used.
 
 
 class Store:
@@ -59,6 +65,14 @@ class Store:
         self._lock = threading.Lock()
         with self._lock, self._db:
             self._db.executescript(_SCHEMA)
+            self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Databases from before cloud sync. Their items count as not yet synced."""
+        have = {row["name"] for row in self._db.execute("PRAGMA table_info(items)")}
+        for column in ("revision INTEGER NOT NULL DEFAULT 1", "synced_revision INTEGER NOT NULL DEFAULT 0", "bitmap TEXT"):
+            if column.split()[0] not in have:
+                self._db.execute(f"ALTER TABLE items ADD COLUMN {column}")
 
     def seen(self, source: str, external_id: Optional[str]) -> bool:
         if not external_id:
@@ -83,16 +97,17 @@ class Store:
         status: str = QUEUED,
         engine: str = "none",
         external_id: Optional[str] = None,
+        bitmap: Optional[str] = None,
     ) -> Optional[int]:
         """Returns the new id, or None when this external_id is already stored."""
         with self._lock, self._db:
             cur = self._db.execute(
                 """INSERT OR IGNORE INTO items
                    (source, sender, raw_text, title, detail, priority, due, status, engine,
-                    external_id, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    external_id, created_at, bitmap)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (source, sender, raw_text, title, detail, priority, due, status, engine,
-                 external_id, time.time()),
+                 external_id, time.time(), bitmap),
             )
             return cur.lastrowid if cur.rowcount else None
 
@@ -121,8 +136,24 @@ class Store:
     def decide(self, item_id: int, status: str) -> None:
         with self._lock, self._db:
             self._db.execute(
-                "UPDATE items SET status = ?, decided_at = ? WHERE id = ?",
+                "UPDATE items SET status = ?, decided_at = ?, revision = revision + 1 WHERE id = ?",
                 (status, time.time(), item_id),
+            )
+
+    def unsynced(self, limit: int = 40) -> list[Item]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM items WHERE revision != synced_revision ORDER BY id LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [_to_item(row) for row in rows]
+
+    def mark_synced(self, items: list[Item]) -> None:
+        """Records the revision that was sent, so a change made during the upload is sent next time."""
+        with self._lock, self._db:
+            self._db.executemany(
+                "UPDATE items SET synced_revision = ? WHERE id = ?",
+                [(item.revision, item.id) for item in items],
             )
 
     def stats(self) -> dict[str, int]:
@@ -151,4 +182,5 @@ def _to_item(row: sqlite3.Row) -> Item:
         id=row["id"], source=row["source"], sender=row["sender"], raw_text=row["raw_text"],
         title=row["title"], detail=row["detail"], priority=row["priority"], due=row["due"],
         status=row["status"], engine=row["engine"], created_at=row["created_at"],
+        decided_at=row["decided_at"], revision=row["revision"], bitmap=row["bitmap"],
     )

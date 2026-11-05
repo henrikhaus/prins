@@ -13,6 +13,7 @@ import logging
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from .design.canvas import bitmap_to_image
 from .engine import Engine
 
 log = logging.getLogger(__name__)
@@ -71,6 +72,8 @@ def make_server(engine: Engine, token: str, port: int) -> ThreadingHTTPServer:
                 self._reply(200, paste.encode(), "text/plain; charset=utf-8")
             elif self.path == "/v1/messages":
                 self._post_message(body)
+            elif self.path == "/v1/notes":
+                self._post_note(body)
             else:
                 self._json(404, {"error": "not found"})
 
@@ -88,6 +91,26 @@ def make_server(engine: Engine, token: str, port: int) -> ThreadingHTTPServer:
                 external_id=str(data["external_id"]) if data.get("external_id") else None,
             )
             self._json(202, {"queued": True})
+
+        def _post_note(self, body: bytes) -> None:
+            """A finished design from an agent. It skips triage: someone asked for this note."""
+            try:
+                data = json.loads(body)
+                title = str(data["title"])[:120]
+                bitmap = data.get("bitmap")
+                if bitmap is not None:
+                    bitmap_to_image(str(bitmap))
+            except (ValueError, KeyError, TypeError) as exc:
+                self._json(400, {"error": f"Send JSON with a title and an optional bitmap: {exc}"})
+                return
+            message = engine.add_note(
+                source=str(data.get("source", "agent"))[:20],
+                sender=str(data.get("sender", ""))[:60],
+                title=title,
+                detail=str(data.get("detail", ""))[:200],
+                bitmap=bitmap,
+            )
+            self._json(202, {"queued": True, "message": message})
 
     return ThreadingHTTPServer(("127.0.0.1", port), Handler)
 

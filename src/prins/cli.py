@@ -16,10 +16,11 @@ import urllib.request
 from pathlib import Path
 
 from .config import HANDY_HOOK_PATH, Config, load_dotenv
+from .design.designer import Designer
 from .device import AtechDevice, CardView, Device, SimDevice, StatusView
 from .engine import Engine
 from .handy import Handy
-from .printers import AtechPrinter, PreviewPrinter, Printer, SerialPrinter
+from .printers import AtechPrinter, M110Printer, PreviewPrinter, Printer, SerialPrinter
 from .render import render_note
 from .server import TOKEN_HEADER, make_server, serve_in_background
 from .store import Item, Store
@@ -37,13 +38,15 @@ def _make_printer(cfg: Config, device: Device) -> Printer:
     if cfg.printer == "serial":
         if not cfg.printer_port:
             sys.exit("PRINS_PRINTER=serial needs PRINS_PRINTER_PORT. List ports: ls /dev/cu.*")
-        return SerialPrinter(cfg.printer_port, cfg.printer_baud, cfg.printer_bytes_per_sec)
+        return SerialPrinter(cfg.printer_port, cfg.printer_baud, cfg.printer_bytes_per_sec, cfg.printer_dots)
     if cfg.printer == "atech":
         if not isinstance(device, AtechDevice):
             sys.exit("PRINS_PRINTER=atech needs the real board, not --device sim.")
-        return AtechPrinter(device.call, device.query, cfg.printer_baud, cfg.printer_bytes_per_sec)
+        return AtechPrinter(device.call, device.query, cfg.printer_baud, cfg.printer_bytes_per_sec, paper_dots=cfg.printer_dots)
+    if cfg.printer == "m110":
+        return M110Printer(cfg.m110_url)
     if cfg.printer != "preview":
-        sys.exit(f"Unknown PRINS_PRINTER {cfg.printer!r}. Use preview, atech or serial.")
+        sys.exit(f"Unknown PRINS_PRINTER {cfg.printer!r}. Use m110, preview, atech or serial.")
     return PreviewPrinter(cfg.prints_dir)
 
 
@@ -76,16 +79,47 @@ def _start_connectors(cfg: Config, engine: Engine, store: Store) -> None:
         log.info("Email connector started for %s.", cfg.imap_user)
 
 
+def _start_cloud(device_kind: str, cfg: Config, engine: Engine, store: Store) -> None:
+    if not (cfg.cloud_url and cfg.cloud_token):
+        return
+    from . import __version__
+    from .cloud import CloudSync
+
+    handy = Handy(cfg.handy_binary)
+
+    def status() -> dict:
+        state = engine.state()
+        return {
+            "deviceKind": device_kind,
+            "printer": cfg.printer,
+            "handyInstalled": handy.installed,
+            "slack": bool(cfg.slack_bot_token and cfg.slack_app_token),
+            "email": bool(cfg.imap_host and cfg.imap_user and cfg.imap_password),
+            "mode": state["mode"],
+            "queue": state["queue"],
+            "version": __version__,
+        }
+
+    try:
+        sync = CloudSync(cfg.cloud_url, cfg.cloud_token, store, engine, status)
+    except ValueError as exc:
+        sys.exit(str(exc))
+    threading.Thread(target=sync.run, name="cloud", daemon=True).start()
+    log.info("Syncing with %s.", cfg.cloud_url)
+
+
 def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     store = Store(cfg.db_path)
     device = _make_device(args.device, cfg)
+    triage = Triage.from_env(cfg.model)
     engine = Engine(
         store=store,
-        triage=Triage.from_env(cfg.model),
+        triage=triage,
         device=device,
         printer=_make_printer(cfg, device),
         dictation=Handy(cfg.handy_binary),
-        note_width=cfg.printer_dots,
+        designer=Designer(triage.client, cfg.model),
+        agent_auto_print=cfg.agent_auto_print,
     )
     token = cfg.api_token()
     try:
@@ -95,6 +129,7 @@ def cmd_run(args: argparse.Namespace, cfg: Config) -> int:
     serve_in_background(server)
     _start_connectors(cfg, engine, store)
     engine.start()
+    _start_cloud(args.device, cfg, engine, store)
     log.info("Running. Local API on http://127.0.0.1:%s, printer: %s.", cfg.http_port, cfg.printer)
 
     def ticker() -> None:
@@ -157,7 +192,7 @@ def cmd_test_print(args: argparse.Namespace, cfg: Config) -> int:
         detail="Æ Ø Å ß é ñ: the note is an image, so every language prints.",
         priority="normal", due="", status="queued", engine="none", created_at=time.time(),
     )
-    image = render_note(item, cfg.printer_dots)
+    image = render_note(item)
     device: Device = SimDevice() if cfg.printer != "atech" else AtechDevice(cfg.board_port)
     try:
         print(_make_printer(cfg, device).print_image(image, "test"))
@@ -206,6 +241,12 @@ def cmd_install_hook(args: argparse.Namespace, cfg: Config) -> int:
     return 0
 
 
+def cmd_mcp(args: argparse.Namespace, cfg: Config) -> int:
+    from .mcp_server import run_mcp
+
+    return run_mcp(cfg)
+
+
 def cmd_doctor(args: argparse.Namespace, cfg: Config) -> int:
     """Says what is ready, without changing anything."""
     from atech.runtime.transport import discover_ports
@@ -220,16 +261,23 @@ def cmd_doctor(args: argparse.Namespace, cfg: Config) -> int:
     handy = Handy(cfg.handy_binary)
     line(handy.installed, "Handy", str(cfg.handy_binary) if handy.installed else "not installed: scripts/install-handy.sh")
     line(HANDY_HOOK_PATH.exists(), "Handy hook", str(HANDY_HOOK_PATH) if HANDY_HOOK_PATH.exists() else "not installed: prins install-hook")
-    line(True, "Printer", cfg.printer + (f" on {cfg.printer_port}" if cfg.printer_port else ""))
+    if cfg.printer == "m110":
+        up = M110Printer(cfg.m110_url).reachable()
+        line(up, "Printer", "M110 server is running" if up else "M110 server isn't running: cd printer && uv run server.py")
+    else:
+        line(True, "Printer", cfg.printer + (f" on {cfg.printer_port}" if cfg.printer_port else ""))
     line(bool(cfg.slack_bot_token and cfg.slack_app_token), "Slack", "configured" if cfg.slack_bot_token else "not configured")
     if cfg.slack_bot_token and not cfg.slack_owner:
         line(False, "Slack owner", "PRINS_SLACK_OWNER is empty, so :printer: reactions do nothing")
     line(bool(cfg.imap_host), "Email", cfg.imap_user or "not configured")
+    line(bool(cfg.cloud_url and cfg.cloud_token), "Dashboard", cfg.cloud_url or "not configured")
     return 0
 
 
 def main(argv: list[str] | None = None) -> int:
-    load_dotenv(Path.cwd() / ".env")
+    # An MCP client starts this from anywhere, so the working directory can't be the only place.
+    for folder in (Path.cwd(), Path(__file__).resolve().parents[2], Config.from_env().home):
+        load_dotenv(folder / ".env")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", datefmt="%H:%M:%S")
 
     parser = argparse.ArgumentParser(prog="prins", description=__doc__)
@@ -251,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     screen.set_defaults(func=cmd_screen_test)
     sub.add_parser("install-hook", help="connect Handy to Prins").set_defaults(func=cmd_install_hook)
     sub.add_parser("doctor", help="show what is ready").set_defaults(func=cmd_doctor)
+    sub.add_parser("mcp", help="run the MCP server for Claude, Codex and others").set_defaults(func=cmd_mcp)
 
     args = parser.parse_args(argv)
     return args.func(args, Config.from_env())

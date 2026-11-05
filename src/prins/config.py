@@ -38,6 +38,7 @@ class Config:
     printer_baud: int = 9600
     printer_bytes_per_sec: int = 900
     printer_dots: int = 384
+    m110_url: str = "http://127.0.0.1:8110"
     board_port: str = ""
     handy_binary: Path = HANDY_BINARY
     slack_bot_token: str = ""
@@ -47,6 +48,9 @@ class Config:
     imap_user: str = ""
     imap_password: str = ""
     imap_folder: str = "INBOX"
+    cloud_url: str = ""
+    cloud_token: str = ""
+    agent_auto_print: bool = False
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -60,6 +64,7 @@ class Config:
             printer_baud=int(env("PRINS_PRINTER_BAUD", "9600")),
             printer_bytes_per_sec=int(env("PRINS_PRINTER_BYTES_PER_SEC", "900")),
             printer_dots=int(env("PRINS_PRINTER_DOTS", "384")),
+            m110_url=env("PRINS_M110_URL", "http://127.0.0.1:8110"),
             board_port=env("PRINS_BOARD_PORT", ""),
             handy_binary=Path(env("PRINS_HANDY_BINARY", str(HANDY_BINARY))),
             slack_bot_token=env("SLACK_BOT_TOKEN", ""),
@@ -69,6 +74,9 @@ class Config:
             imap_user=env("PRINS_IMAP_USER", ""),
             imap_password=env("PRINS_IMAP_PASSWORD", ""),
             imap_folder=env("PRINS_IMAP_FOLDER", "INBOX"),
+            cloud_url=env("PRINS_CLOUD_URL", ""),
+            cloud_token=env("PRINS_CLOUD_TOKEN", ""),
+            agent_auto_print=env("PRINS_AGENT_AUTO_PRINT", "").lower() in ("1", "true", "yes"),
         )
 
     @property

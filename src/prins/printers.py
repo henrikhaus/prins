@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import base64
+import json
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Callable, Protocol
 
@@ -40,13 +43,13 @@ class PreviewPrinter:
 class SerialPrinter:
     """A printer that appears as a serial port on the Mac, by USB or paired Bluetooth."""
 
-    def __init__(self, port: str, baud: int, bytes_per_sec: int) -> None:
-        self.port, self.baud, self.bytes_per_sec = port, baud, bytes_per_sec
+    def __init__(self, port: str, baud: int, bytes_per_sec: int, paper_dots: int = 384) -> None:
+        self.port, self.baud, self.bytes_per_sec, self.paper_dots = port, baud, bytes_per_sec, paper_dots
 
     def print_image(self, image: Image.Image, label: str) -> str:
         import serial
 
-        data = to_escpos(image)
+        data = to_escpos(image, paper_dots=self.paper_dots)
         try:
             with serial.Serial(self.port, self.baud, timeout=5, write_timeout=10) as link:
                 for start in range(0, len(data), 64):
@@ -56,6 +59,54 @@ class SerialPrinter:
         except (serial.SerialException, OSError) as exc:
             raise PrintError(f"printer on {self.port}: {exc}") from exc
         return f"{len(data)} bytes to {self.port}"
+
+
+class M110Printer:
+    """The Clas Ohlson M110 label printer, through the local API in printer/server.py.
+
+    That server owns the Bluetooth connection and the calibrated label geometry: only the last
+    312 of the 384 dots land on the label, after 20 blank rows. So notes must go through it and
+    not through to_escpos. Its 1bpp format is the same as a note bitmap.
+    """
+
+    def __init__(self, url: str = "http://127.0.0.1:8110", dry_run: bool = False) -> None:
+        self.url, self.dry_run = url.rstrip("/"), dry_run
+
+    def print_image(self, image: Image.Image, label: str) -> str:
+        packed = bytes(b ^ 0xFF for b in image.convert("1").tobytes())
+        body = {
+            "width": image.width,
+            "height": image.height,
+            "format": "1bpp",
+            "data": base64.b64encode(packed).decode("ascii"),
+            "dry_run": self.dry_run,
+        }
+        request = urllib.request.Request(
+            f"{self.url}/print", data=json.dumps(body).encode(), headers={"Content-Type": "application/json"}
+        )
+        try:
+            # A print reconnects over Bluetooth and waits for the printer, which takes seconds.
+            with urllib.request.urlopen(request, timeout=60) as response:
+                result = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            raise PrintError(_server_error(exc)) from exc
+        except (urllib.error.URLError, OSError) as exc:
+            raise PrintError("The printer server isn't running: cd printer && uv run server.py") from exc
+        return f"{result.get('black_pixels')} black pixels to the M110"
+
+    def reachable(self) -> bool:
+        try:
+            with urllib.request.urlopen(f"{self.url}/canvas", timeout=2) as response:
+                return response.status == 200
+        except (urllib.error.URLError, OSError):
+            return False
+
+
+def _server_error(exc: urllib.error.HTTPError) -> str:
+    try:
+        return str(json.loads(exc.read()).get("detail", exc))
+    except ValueError:
+        return str(exc)
 
 
 class AtechPrinter:
@@ -68,14 +119,16 @@ class AtechPrinter:
         baud: int,
         bytes_per_sec: int,
         sleep: Callable[[float], None] = time.sleep,
+        paper_dots: int = 0,
     ) -> None:
         self._call, self._query, self._sleep = call, query, sleep
+        self.paper_dots = paper_dots
         self.baud, self.bytes_per_sec = baud, bytes_per_sec
 
     def print_image(self, image: Image.Image, label: str) -> str:
         from atech import ActionRejected, NoAcknowledgement
 
-        data = to_escpos(image)
+        data = to_escpos(image, paper_dots=self.paper_dots)
         try:
             self._call("printer_config", {"baud": self.baud, "bytes_per_sec": self.bytes_per_sec})
             for start in range(0, len(data), CHUNK_BYTES):

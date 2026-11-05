@@ -2,7 +2,15 @@
 
 ## What is in the kit, and what is not
 
-The Atech kit covers the board, screen and buttons. **It has no printer.** You can run and demo everything except paper today, using the `preview` printer, which saves each note as a PNG.
+The Atech kit covers the board, screen and buttons. **The printer is a separate Clas Ohlson M110 label printer**, driven over Bluetooth from the Mac by the code in `printer/`. Its adhesive labels are the sticky notes.
+
+```sh
+cd printer && uv run server.py     # In its own terminal. Keep the printer on and off the phone app.
+PRINS_PRINTER=m110                 # In .env
+prins test-print
+```
+
+Without a printer, `PRINS_PRINTER=preview` saves each note as a PNG. The rest of this page, from "Choosing a printer" on, covers the alternatives to the M110.
 
 ## Default layout (14-port board)
 
@@ -58,6 +66,8 @@ prins send "Can you send me the Q3 numbers before Friday?" --source slack --send
 **8. Slack.** See [CONNECTORS.md](CONNECTORS.md).
 
 ## Choosing a printer
+
+These are the alternatives to the M110, for a printer built into the product.
 
 | | Embedded TTL printer on the board | Bluetooth or USB printer on the Mac |
 |---|---|---|

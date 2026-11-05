@@ -60,13 +60,13 @@ def test_longest_card_fits_the_firmware_line_limit():
 
 def test_note_renders_at_the_printer_width_in_one_bit():
     image = render_note(_item())
-    assert image.width == 384
+    assert image.size == (312, 216)
     assert image.mode == "1"
 
 
 def test_note_handles_long_words_and_any_language():
     image = render_note(_item(title="Blåbærsyltetøy" * 10, detail="日本語 Ωmega", due="fredag"))
-    assert image.width == 384 and image.height > 100
+    assert image.size == (312, 216)
 
 
 def test_escpos_black_pixels_are_one_bits():

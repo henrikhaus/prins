@@ -42,6 +42,8 @@ Remove filler, false starts and self-corrections, keeping the final version of w
 Fix likely transcription errors only when the meaning is clear.
 Return one note per distinct task. If it is a thought and not a task, return one note that
 captures the thought. Return nothing only if the text has no content at all.
+design_brief: only if they ask for a look (a drawing, a logo, a card, a style), describe the
+picture in under 25 words. Otherwise leave it empty.
 
 {_RULES}"""
 
@@ -59,6 +61,7 @@ class Note(BaseModel):
     detail: str
     priority: Literal["high", "normal", "low"]
     due: str
+    design_brief: str = ""
 
 
 class DictationNotes(BaseModel):
@@ -73,6 +76,7 @@ class TriageResult:
     priority: str = "normal"
     due: str = ""
     engine: str = "model"
+    design_brief: str = ""
 
 
 def _clip(text: str, limit: int) -> str:
@@ -143,7 +147,13 @@ class Triage:
         parsed = self._parse(_DICTATION_SYSTEM, prompt, DictationNotes)
         if parsed is None:
             return [fallback_message(text)]
-        return [_finish(note, True) for note in parsed.notes if note.title.strip()]
+        results = []
+        for note in parsed.notes:
+            if note.title.strip():
+                result = _finish(note, True)
+                result.design_brief = note.design_brief.strip()
+                results.append(result)
+        return results
 
     def _parse(self, system: str, prompt: str, schema: type[BaseModel]) -> Optional[BaseModel]:
         if self.client is None:

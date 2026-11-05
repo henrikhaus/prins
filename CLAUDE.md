@@ -1,6 +1,6 @@
 # Prins
 
-A desk device: Python daemon on the Mac (`src/prins/`), Atech ESP32-S3 firmware (`firmware/`). Read `docs/ARCHITECTURE.md` first, and `docs/HARDWARE.md` for anything physical.
+A desk device: Python daemon on the Mac (`src/prins/`), Atech ESP32-S3 firmware (`firmware/`), web dashboard (`dashboard/`, see its README). Read `docs/ARCHITECTURE.md` first, and `docs/HARDWARE.md` for anything physical.
 
 ## Commands
 
@@ -13,6 +13,10 @@ prins doctor
 ```
 
 ## Rules
+
+- A note is exactly 312x216, 1 bit, every pixel on or off. That's the M110's calibrated label area, and its API refuses anything wider. The 320x240 is only the board's screen.
+- Keep tool definitions in `src/prins/design/tools.py` short: they cost tokens in every request. `tests/test_design.py` caps their size.
+- Friends' notes never skip the recipient's button, and permission is checked again at delivery.
 
 - Run `atech guide` before changing firmware. Never block `loop()`, never read `Serial`, and never hardcode GPIO numbers.
 - Text sent to the screen must go through `screen_text()`. The board's fonts and JSON reader are ASCII only.

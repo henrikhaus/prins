@@ -12,11 +12,16 @@ The Mac runs all the logic. The board is a screen, three buttons and a printer p
    records, transcribes,    │
    calls the hook           ├─► Screen  ──── JSON over USB ───► Atech board
                             │                                    ▲ buttons
-                            └─► Printer: render note to a 1-bit image, encode ESC/POS
+                            └─► Printer: every note is a 312x216, 1-bit grid
+                                  ├─ m110: printer/server.py ► Bluetooth ► label printer
                                   ├─ preview: PNG file
                                   ├─ serial: printer on the Mac
                                   └─ atech: board UART ► TTL thermal printer
+
+ Claude, Codex ► prins mcp ► the design tools ► the queue, or a friend through the dashboard
 ```
+
+The daemon also syncs to the [dashboard](../dashboard/README.md) when `PRINS_CLOUD_URL` and `PRINS_CLOUD_TOKEN` are set. It's optional: the device works the same without it. Every 5 seconds it uploads changed notes and device status, and gets back any decisions made on the web. A repeated command can't print twice, because a note that's no longer queued is left alone.
 
 ## Files
 
@@ -30,6 +35,11 @@ The Mac runs all the logic. The board is a screen, three buttons and a printer p
 | `src/prins/handy.py` | Starts and stops Handy |
 | `src/prins/server.py` | Local HTTP API |
 | `src/prins/connectors/` | Slack and email |
+| `src/prins/cloud.py` | Sync with the dashboard |
+| `src/prins/design/` | The drawing engine and its tools, shared by MCP and the internal designer |
+| `src/prins/mcp_server.py` | The MCP server |
+| `printer/` | The M110 driver and its local API |
+| `dashboard/` | The web app |
 | `firmware/project.yaml` | Screen drawing and the module layout |
 | `firmware/my_modules/thermal_printer/` | Rate-limited printer output |
 | `scripts/handy-hook.sh` | Bridges Handy's transcript to Prins |
@@ -42,6 +52,7 @@ USB serial, one JSON object per line, capped at 4096 characters. Every action ge
 |---|---|---|
 | Mac to board | `ui_card` | `{source, from, title, detail, hint, queue, accent}` |
 | Mac to board | `ui_status` | `{title, detail, accent}` fills the screen |
+| Mac to board | `ui_design` | `{o, d}`: one piece of a note's bitmap. `ui_card` with `design:1` then shows the note itself |
 | Mac to board | `printer_write` | Base64 ESC/POS, at most 2400 bytes decoded. Fails with `busy` when the queue is full |
 | Mac to board | `printer_config` | `{baud, bytes_per_sec}` |
 | Mac to board | `printer_status` | Answers with the event below |
@@ -73,4 +84,4 @@ curl -H "X-Prins-Token: $(cat ~/.prins/token)" \
 - **Only the owner's `:printer:` reaction counts,** otherwise anyone in the workspace could print on your desk.
 - **The local API needs a token,** otherwise any website could post to localhost.
 - **Email is never modified.** The mailbox opens read-only, and fetches use `BODY.PEEK`.
-- **Data leaves the Mac** when Slack and email text goes to the Anthropic API for triage. Audio stays local with Handy's on-device models. Customers will ask, so be ready to explain this.
+- **Data leaves the Mac in two ways.** Slack and email text goes to the Anthropic API for triage. If the dashboard is connected, the short note, source and sender go there too, but never the raw message. Audio stays local with Handy's on-device models. Customers will ask, so be ready to explain this.
