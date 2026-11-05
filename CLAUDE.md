@@ -1,14 +1,15 @@
 # Prins
 
-A desk device: Python daemon on the Mac (`src/prins/`), Atech ESP32-S3 firmware (`firmware/`), web dashboard (`dashboard/`, see its README). Read `docs/ARCHITECTURE.md` first, and `docs/HARDWARE.md` for anything physical.
+A desk device: Python daemon on the Mac (`src/prins/`), Atech ESP32-S3 firmware (`firmware/` is the voice label maker, `firmware-prins/` the original queue-and-approve product), web dashboard (`dashboard/`, see its README). Read `docs/ARCHITECTURE.md` first, and `docs/HARDWARE.md` for anything physical.
 
 ## Commands
 
 ```sh
 source .venv/bin/activate      # atech needs PlatformIO from this virtualenv on PATH
 pytest
-atech validate firmware && atech build firmware
+atech validate firmware && atech build firmware        # label maker; firmware-prins/ for the original product
 atech upload firmware && atech check
+prins labels --dry-run                                  # label maker: hold the talk button, see docs/LABELS.md
 prins doctor
 ```
 

@@ -10,6 +10,8 @@ prins mic-test             # hold button 5, hear what the board's microphone pic
 prins label-draw "a label that says Dentist"   # the agent alone, no hardware
 ```
 
+The label maker has its own firmware in `firmware/`: `atech upload firmware`. The original queue-and-approve product's firmware is in `firmware-prins/` (a 320x240 screen and different ports), and `prins run` talks to that one. The two cannot be flashed at once and neither daemon works with the other's firmware.
+
 Put `ANTHROPIC_API_KEY` in `.env`. Only one program can hold the board's USB port, so stop `mic-test` before `labels`.
 
 ## Layout (14-port board)

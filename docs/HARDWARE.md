@@ -22,7 +22,7 @@ Without a printer, `PRINS_PRINTER=preview` saves each note as a PNG. The rest of
 | 10 | Button: confirm (green) | `button` | |
 | 11 | Button: dismiss (red) | `button` | |
 
-Your layout can differ. Change `firmware/project.yaml` and run `atech upload firmware` again. Run `atech view firmware` to see the board in 3D and compare it with the one in your hand.
+Your layout can differ. Change `firmware-prins/project.yaml` and run `atech upload firmware-prins` again. Run `atech view firmware-prins` to see the board in 3D and compare it with the one in your hand.
 
 Other kits:
 - **10-port board:** set `board: 10port` and put the printer on port 4, its UART port.
@@ -45,7 +45,7 @@ prins doctor
 
 **1. Board on USB.** Run `atech ports`. *Pass: it lists a `/dev/cu.usbmodem...` port.* If not, try another cable, since many are charge-only, and avoid hubs.
 
-**2. Flash.** Run `atech upload firmware`, then `atech check`. *Pass: `atech check` reports the modules.* It cannot detect the screen or printer, because they have no read-back, so a pass here doesn't prove they work.
+**2. Flash.** Run `atech upload firmware-prins`, then `atech check`. *Pass: `atech check` reports the modules.* It cannot detect the screen or printer, because they have no read-back, so a pass here doesn't prove they work.
 
 **3. Screen and buttons.** Run `prins screen-test`. *Pass: all seven screens are readable and the right way up, and each button prints its own name.* If the screen is upside down, change `setRotation(1)` to `3` in `project.yaml`. If names are swapped, fix the ports.
 

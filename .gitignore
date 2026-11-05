@@ -5,4 +5,6 @@ __pycache__/
 .env
 firmware/build/
 firmware/.pio/
+firmware-prins/build/
+firmware-prins/.pio/
 dist/

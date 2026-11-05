@@ -40,8 +40,8 @@ The daemon also syncs to the [dashboard](../dashboard/README.md) when `PRINS_CLO
 | `src/prins/mcp_server.py` | The MCP server |
 | `printer/` | The M110 driver and its local API |
 | `dashboard/` | The web app |
-| `firmware/project.yaml` | Screen drawing and the module layout |
-| `firmware/my_modules/thermal_printer/` | Rate-limited printer output |
+| `firmware-prins/project.yaml` | Screen drawing and the module layout |
+| `firmware-prins/my_modules/thermal_printer/` | Rate-limited printer output |
 | `scripts/handy-hook.sh` | Bridges Handy's transcript to Prins |
 
 ## Board protocol

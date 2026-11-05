@@ -34,7 +34,7 @@ Set `PRINS_PRINTER=preview` in `.env` for no printer. In the first terminal, typ
 Follow **[docs/HARDWARE.md](docs/HARDWARE.md)** step by step. In short:
 
 ```sh
-atech upload firmware      # The first build downloads the ESP32 compiler, about 5 GB
+atech upload firmware-prins  # The original product's firmware (the label maker's is firmware/, see docs/LABELS.md). The first build downloads the ESP32 compiler, about 5 GB
 prins screen-test        # Check the screen and buttons by eye
 prins run                # The real thing
 ```
@@ -67,7 +67,7 @@ prins run                # The real thing
 
 ```sh
 pytest
-atech validate firmware && atech build firmware
+atech validate firmware-prins && atech build firmware-prins
 cd dashboard && bun run check
 ```
 

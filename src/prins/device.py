@@ -99,7 +99,7 @@ class Device(Protocol):
 
 
 class AtechDevice:
-    """Speaks the JSON protocol from firmware/project.yaml over USB."""
+    """Speaks the JSON protocol from firmware-prins/project.yaml over USB."""
 
     def __init__(self, port: str = "", board=None) -> None:
         from atech import Board

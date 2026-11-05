@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Iterable
 
-from PIL import Image, ImageChops, ImageDraw
-
-from .render import _font, _wrap
+from PIL import Image, ImageChops, ImageDraw, ImageFont
 
 CANVAS_WIDTH = 312   # printer/server.py GRID_WIDTH
 CANVAS_HEIGHT = 216  # printer/server.py GRID_HEIGHT
@@ -23,6 +22,43 @@ EDGE_SLACK = 2
 THUMB_MAX = (116, 80)  # What the 160x80 screen has room for next to its caption.
 
 _SHAPES = ("rect", "ellipse", "polygon", "polyline")
+
+_FONT_CANDIDATES = [
+    "/System/Library/Fonts/Helvetica.ttc",
+    "/System/Library/Fonts/Supplemental/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+
+def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
+    for path in _FONT_CANDIDATES:
+        if Path(path).exists():
+            index = 1 if bold and path.endswith(".ttc") else 0  # In Helvetica.ttc, face 1 is bold.
+            return ImageFont.truetype(path, size, index=index)
+    return ImageFont.load_default(size)
+
+
+def _wrap(draw: ImageDraw.ImageDraw, text: str, font, width: int) -> Iterable[str]:
+    line = ""
+    for word in text.split():
+        while draw.textlength(word, font=font) > width:  # A word wider than the label is broken by character.
+            cut = len(word) - 1
+            while cut > 1 and draw.textlength(word[:cut], font=font) > width:
+                cut -= 1
+            if line:
+                yield line
+                line = ""
+            yield word[:cut]
+            word = word[cut:]
+        candidate = f"{line} {word}".strip()
+        if draw.textlength(candidate, font=font) <= width:
+            line = candidate
+        else:
+            yield line
+            line = word
+    if line:
+        yield line
+
 _FILLS = {"black": 255, "gray": 128, "light": 64}  # coverage of black ink, out of 255
 
 
