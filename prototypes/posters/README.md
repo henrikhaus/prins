@@ -1,6 +1,6 @@
 # Poster concepts
 
-A design brainstorm for better notes. Nothing here is wired into Prins.
+The design brainstorm that led to `src/prins/design/poster.py`. Nothing here is wired into Prins: the code is kept as a record of the hand-tuned originals, which the engine's looks now generalize.
 
 Each poster is hand-tuned Python on the real 312x216, 1-bit grid, and is checked against the note wire format. The renders in `out/` are the concepts. `out/before_*.png` shows what Haiku drew for the same briefs using the existing tool definitions.
 
@@ -13,4 +13,4 @@ python baseline.py
 python payloads.py
 ```
 
-Not done yet: making each form work with arbitrary text, testing the payloads with a model, and printing on real paper.
+Not done yet: printing on real paper.

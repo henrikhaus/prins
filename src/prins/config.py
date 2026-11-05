@@ -41,6 +41,7 @@ class Config:
     m110_url: str = "http://127.0.0.1:8110"
     board_port: str = ""
     label_model: str = "claude-sonnet-5-5"
+    name: str = ""  # The owner's name, for the FROM line on a poster sent to a friend.
     label_printer_url: str = "http://127.0.0.1:8110"
     stt_model: str = "turbo"
     stt_language: str = ""
@@ -71,6 +72,7 @@ class Config:
             m110_url=env("PRINS_M110_URL", "http://127.0.0.1:8110"),
             board_port=env("PRINS_BOARD_PORT", ""),
             label_model=env("PRINS_LABEL_MODEL", "claude-sonnet-5-5"),
+            name=env("PRINS_NAME", ""),
             label_printer_url=env("PRINS_LABEL_PRINTER_URL", "http://127.0.0.1:8110"),
             stt_model=env("PRINS_STT_MODEL", "turbo"),
             stt_language=env("PRINS_STT_LANGUAGE", ""),

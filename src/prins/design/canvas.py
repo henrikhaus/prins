@@ -14,6 +14,7 @@ from .figures import FIGURES, figure_mask
 from .formula import FormulaError, compile_formula
 from .frames import FRAMES, frame_mask
 from .patterns import PATTERNS, has_pattern, pattern_image
+from .poster import LOOKS, Report, render as render_poster
 
 WIDTH, HEIGHT = 312, 216
 BITMAP_BYTES = (WIDTH + 7) // 8 * HEIGHT  # 39 bytes per row, 8424 in all.
@@ -65,11 +66,14 @@ def _int(op: Op, key: str, default: int) -> int:
 
 class Canvas:
     """external=False stops a design reading files or the network, for untrusted callers.
-    web=True lets such a design load public web addresses, and nothing else outside itself."""
+    web=True lets such a design load public web addresses, and nothing else outside itself.
+    sender is who a poster may say the note is from: set by the connector, never by a design."""
 
-    def __init__(self, external: bool = True, web: bool = False) -> None:
+    def __init__(self, external: bool = True, web: bool = False, sender: str = "") -> None:
         self.external = external
         self.web = web
+        self.sender = sender
+        self.report: Optional[Report] = None
         self.image = Image.new("1", (WIDTH, HEIGHT), 1)
         self.ops: list[Op] = []
 
@@ -167,6 +171,11 @@ class Canvas:
             external=self.external,
         )
         self._place(part, x, y, op)
+
+    def _op_poster(self, op: Op) -> None:
+        """Replaces the whole note. Other ops can draw on top afterwards."""
+        image, self.report = render_poster(op, self.sender)
+        self.image = image
 
     def _op_figure(self, op: Op) -> None:
         name = str(op.get("name", ""))
@@ -567,6 +576,7 @@ def catalog(kind: Optional[str] = None) -> dict[str, list[str]]:
         "patterns": sorted(PATTERNS) + ["gray:N"],
         "frames": sorted(FRAMES),
         "fonts": assets.font_names(),
+        "looks": [f"{name}: {look.when}" for name, look in LOOKS.items()],
         "dithers": list(assets.DITHERS),
         "ops": OPS,
         "system_fonts": assets.all_system_fonts(),

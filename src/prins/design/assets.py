@@ -349,8 +349,8 @@ def _halftone(gray: Image.Image, cell: int = 5) -> Image.Image:
 _EMOJI_FONT = Path("/System/Library/Fonts/Apple Color Emoji.ttc")
 
 
-def emoji_image(text: str, width: int, height: int) -> Optional[Image.Image]:
-    """Any emoji, drawn by the system's emoji font. None if this machine has no such font."""
+def emoji_rgba(text: str, size: int = 160) -> Optional[Image.Image]:
+    """An emoji cropped tight, on transparency. None if this machine has no emoji font."""
     if not _EMOJI_FONT.exists():
         return None
     from PIL import ImageDraw
@@ -359,6 +359,10 @@ def emoji_image(text: str, width: int, height: int) -> Optional[Image.Image]:
     canvas = Image.new("RGBA", (200 * max(1, len(text)), 200), (255, 255, 255, 0))
     ImageDraw.Draw(canvas).text((0, 0), text, font=font, embedded_color=True)
     box = canvas.getbbox()
-    if box is None:
-        return None
-    return fit_image(canvas.crop(box), width, height, "contain")
+    return canvas.crop(box) if box else None
+
+
+def emoji_image(text: str, width: int, height: int) -> Optional[Image.Image]:
+    """Any emoji, drawn by the system's emoji font. None if this machine has no such font."""
+    image = emoji_rgba(text)
+    return None if image is None else fit_image(image, width, height, "contain")

@@ -37,6 +37,8 @@ The daemon also syncs to the [dashboard](../dashboard/README.md) when `PRINS_CLO
 | `src/prins/connectors/` | Slack and email |
 | `src/prins/cloud.py` | Sync with the dashboard |
 | `src/prins/design/` | The drawing engine and its tools, shared by MCP and the internal designer |
+| `src/prins/design/poster.py` | The poster looks, choosing between them, and the rules every note keeps |
+| `src/prins/design/craft.py` | Type that fits exactly, pictures of any subject, print-like shading |
 | `src/prins/mcp_server.py` | The MCP server |
 | `printer/` | The M110 driver and its local API |
 | `dashboard/` | The web app |

@@ -6,6 +6,7 @@ import json
 
 import anthropic
 import httpx2
+import pytest
 
 from prins.design.canvas import bitmap_to_image
 from prins.design.designer import Designer
@@ -30,50 +31,49 @@ def tool_use(name: str, args: dict, id_: str = "t1") -> dict:
 
 
 DONE = ([{"type": "text", "text": "Done."}], "end_turn")
+POSTER = tool_use("draw_poster", {"look": "picture", "say": "Heart", "pic": "heart"})
 
 
-def test_draws_with_the_shared_tools_and_stops():
+def test_it_takes_one_call_and_no_thinking_on_haiku():
     seen: list = []
-    client = scripted_client([
-        ([tool_use("draw_batch", {"ops": [{"op": "figure", "name": "heart"}, {"op": "frame", "name": "double"}]})], "tool_use"),
-        DONE,
-    ], seen)
-    bitmap = Designer(client).design("a heart with a border")
+    client = scripted_client([([POSTER], "tool_use"), DONE], seen)
+    bitmap = Designer(client).design("a heart")
     assert bitmap_to_image(bitmap).convert("L").histogram()[0] > 1000
-    assert len(seen) == 2
-    assert seen[0]["model"] == "claude-haiku-5-5" and seen[0]["output_config"]["effort"] == "low"
-    names = {tool["name"] for tool in seen[0]["tools"]}
-    assert "draw_batch" in names and "print_note" not in names and "draw_image" not in names
+    assert len(seen) == 1, "a second call would only wait for the word Done"
+    request = seen[0]
+    assert request["model"] == "claude-haiku-5-5" and request["output_config"]["effort"] == "low"
+    assert request["tool_choice"]["type"] == "tool" and request["tool_choice"]["name"] == "draw_poster"
+    assert [tool["name"] for tool in request["tools"]] == ["draw_poster"]
 
 
-def test_a_tool_error_goes_back_so_the_model_can_fix_it():
+@pytest.mark.parametrize("model", ["claude-sonnet-5-5", "claude-opus-5-5"])
+def test_models_that_refuse_a_forced_tool_arent_sent_one(model):
     seen: list = []
-    client = scripted_client([
-        ([tool_use("draw_figure", {"name": "nope"})], "tool_use"),
-        ([tool_use("draw_figure", {"name": "heart"}, "t2")], "tool_use"),
-        DONE,
-    ], seen)
+    Designer(scripted_client([([POSTER], "tool_use")], seen), model).design("a heart")
+    assert seen[0]["tool_choice"]["type"] == "auto"
+
+
+def test_the_tools_it_gets_are_a_fraction_of_the_full_set():
+    seen: list = []
+    Designer(scripted_client([([POSTER], "tool_use")], seen)).design("a heart")
+    assert len(json.dumps(seen[0]["tools"])) < 1500
+
+
+def test_a_refused_call_goes_back_once_so_the_model_can_fix_it():
+    seen: list = []
+    bad = tool_use("draw_figure", {"name": "nope"})
+    client = scripted_client([([bad], "tool_use"), ([POSTER], "tool_use")], seen)
     assert Designer(client).design("heart") is not None
+    assert len(seen) == 2
     result = seen[1]["messages"][-1]["content"][0]
-    assert result["is_error"] is True and "catalog" in result["content"]
+    assert result["is_error"] is True
 
 
-def test_parallel_tool_calls_all_get_one_result_message():
+def test_it_gives_up_after_two_calls_so_cost_is_bounded():
     seen: list = []
-    client = scripted_client([
-        ([tool_use("draw_figure", {"name": "heart", "w": 50, "h": 50}, "a"), tool_use("draw_text", {"s": "hi", "x": 60, "w": 100, "h": 50}, "b")], "tool_use"),
-        DONE,
-    ], seen)
-    Designer(client).design("x")
-    content = seen[1]["messages"][-1]["content"]
-    assert [c["tool_use_id"] for c in content] == ["a", "b"]
-
-
-def test_it_gives_up_after_a_few_turns_so_cost_is_bounded():
-    seen: list = []
-    client = scripted_client([([tool_use("draw_figure", {"name": "heart"})], "tool_use")], seen)
-    assert Designer(client).design("x") is not None
-    assert len(seen) == 4
+    bad = tool_use("draw_figure", {"name": "nope"})
+    assert Designer(scripted_client([([bad], "tool_use")], seen)).design("x") is None
+    assert len(seen) == 2
 
 
 def test_no_drawing_or_an_api_error_means_the_plain_layout():
@@ -88,11 +88,17 @@ def test_no_drawing_or_an_api_error_means_the_plain_layout():
 
 
 def test_it_cant_read_files_even_if_the_brief_tries(tmp_path):
+    secret = tmp_path / "secret.png"
+    secret.write_bytes(b"secret")
     seen: list = []
-    client = scripted_client([
-        ([tool_use("draw_svg", {"src": str(tmp_path / "secret.svg")})], "tool_use"),
-        DONE,
-    ], seen)
+    client = scripted_client([([tool_use("draw_poster", {"look": "picture", "say": "x", "pic": str(secret)})], "tool_use")], seen)
+    bitmap = Designer(client).design("show my secret")
+    assert bitmap is not None and len(seen) == 1  # It draws the words. The file is never opened.
+
+
+def test_it_cant_use_the_drawing_tools_that_touch_the_outside_even_if_it_tries(tmp_path):
+    seen: list = []
+    client = scripted_client([([tool_use("draw_svg", {"src": str(tmp_path / "secret.svg")})], "tool_use"), DONE], seen)
     assert Designer(client).design("show my secret") is None
     assert seen[1]["messages"][-1]["content"][0]["is_error"] is True
 

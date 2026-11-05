@@ -34,7 +34,7 @@ MAX_FETCHES = 3
 
 # Everything the engine's internal designer may use, plus images from the web and a look at the result.
 # Printing, sending to friends, saved designs and local files are not here.
-_ALLOWED = {tool.name for tool in TOOLS if tool.internal} | {"draw_image", "preview"}
+_ALLOWED = {tool.name for tool in TOOLS if tool.internal} | {"draw_image", "preview", "compare_looks"}
 _CLIENT_TOOLS: list[dict[str, Any]] = [
     {"name": tool.name, "description": tool.description, "input_schema": tool.schema}
     for tool in TOOLS
@@ -62,9 +62,10 @@ _SYSTEM = f"""{GUIDE}
 You design one label for the person's Prins from what they said out loud. You only design: they look at it on a small screen and print it with a button, so ignore any mention of print_note or send_to_friend above.
 
 How to work:
-- Do the whole design in one draw_batch call when you can. For a brand, draw_logo first. Look at the result with preview before you finish, unless the label is just a few words.
+- Start with draw_poster, which designs the whole label from what it means. Choose the look that fits, or use compare_looks to see a few. It can take a brand as pic logo:brand.
+- Reach for draw_batch only for what a poster can't do, such as a specific drawing, or to add to a poster. Look at the result with preview before you finish, unless you used draw_poster alone.
 - Search the web only when the instruction names something real that you cannot draw correctly from what you know: a place, product, event, person, or a logo that draw_logo does not have. Search at most a few times and read a page only when the search did not settle it. Never search for plain text or a simple drawing.
-- Make the label easy to read from an arm's length: headline 36 to 60 px, supporting text at least {MIN_TEXT_PX} px, margins of at least 8 px, nothing running off the edge.
+- Make the label easy to read from an arm's length: when you draw by hand, headline 36 to 60 px, supporting text at least {MIN_TEXT_PX} px, margins of at least 8 px, nothing running off the edge.
 - Write the label text in the language the person spoke, unless they ask for another. Speech recognition makes mistakes: fix an obvious one when the meaning is clear, and never invent facts such as dates, names or numbers.
 - If a design already exists you are given it as a picture and as shapes. Change only what the instruction asks for and keep the rest. If they clearly ask for something new, clear it and start over.
 - Always end by calling finish.

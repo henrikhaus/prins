@@ -112,7 +112,7 @@ def build_server(session: Session) -> Server:
 
 
 def run_mcp(cfg: Config) -> int:
-    session = Session(canvas=Canvas(external=True), output=LocalOutput(cfg), designs_dir=cfg.home / "designs")
+    session = Session(canvas=Canvas(external=True, sender=cfg.name), output=LocalOutput(cfg), designs_dir=cfg.home / "designs")
     server = build_server(session)
 
     async def main() -> None:

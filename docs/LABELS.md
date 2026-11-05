@@ -62,7 +62,7 @@ hold 5 ─► board streams 16 kHz PCM ─► Mac: Whisper (local) ─► text
 | `src/prins/labelprinter.py` | Printer server client, starts it if needed |
 | `src/prins/mictest.py` | `prins mic-test` |
 
-The agent draws with the engine's tools (`draw_batch`, `draw_logo`, `draw_svg`, `draw_image`, `draw_text`, `preview`, ...), looks at its work with `preview`, and ends by calling `finish(title, summary)`. A design is the list of ops it drew. Holding talk again puts those ops back on the canvas and gives the agent the picture plus your new instruction. `finish` runs two checks and sends problems back (up to two times): a blank label or one that is more than 60% black, and text under 16 px.
+The agent starts with `draw_poster` (see [MCP.md](MCP.md#posters)), can compare looks with `compare_looks`, and reaches for the other tools (`draw_batch`, `draw_logo`, `draw_svg`, `draw_image`, `draw_text`, `preview`, ...) for what a poster can't do. It ends by calling `finish(title, summary)`. A design is the list of ops it drew. Holding talk again puts those ops back on the canvas and gives the agent the picture plus your new instruction. `finish` runs two checks and sends problems back (up to two times): a blank label or one that is more than 60% black, and text under 16 px.
 
 ## Web access
 

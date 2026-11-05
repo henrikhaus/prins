@@ -41,6 +41,8 @@ There's no limit on the design, because every pixel is reachable:
 
 | Tool | What it does |
 |---|---|
+| `draw_poster` | A whole designed note from its meaning. Start here. See below |
+| `compare_looks` | The same content in the looks that suit it, as one numbered image |
 | `draw_logo` | A brand logo by name, from Simple Icons' 3000+ logos |
 | `draw_svg` | Any vector: path data, full SVG markup, or a URL or file |
 | `draw_image` | Any image or photo by URL, path or base64, dithered to 1 bit |
@@ -62,9 +64,42 @@ There's no limit on the design, because every pixel is reachable:
 
 Anywhere that takes `ink` accepts `black`, `white`, `invert` or a pattern such as `dots:6`, so text can be filled with a pattern.
 
+## Posters
+
+`draw_poster` is how a small model makes a note that looks designed. The model says what the note means, and the engine (`design/poster.py`, `design/craft.py`) does the rest:
+
+```json
+{"look": "picture", "say": "Bite me", "pic": "🦈"}
+```
+
+| Field | What it is |
+|---|---|
+| `say` | The fewest words that carry the message |
+| `sub` | One short line of detail |
+| `big` | A number or time to feature |
+| `pic` | The subject: any emoji, a word Unicode has an emoji for, or `logo:brand` |
+| `data` | Real numbers over time |
+| `items` | List entries, or `KEY: VALUE` facts |
+| `qr` | A link for a QR code |
+| `look` | Which look. Leave it out and the engine chooses |
+| `seed` | Another number gives another variation |
+
+There are 18 looks: `block`, `alarm`, `relief`, `monument`, `ransom`, `numeral`, `collide`, `picture`, `engraving`, `stage`, `post`, `ticket`, `rain`, `ridges`, `transit`, `cover`, `list` and `quote`. `catalog` with kind `looks` says when each one fits.
+
+A look solves its own layout for whatever text arrives, so:
+
+- **Words aren't lost.** A field a look can't show moves to one it can. A note that can't fit its text says so.
+- **Text stays legible.** If a look can't hold the words at a printable size, or would go over 60% black, the next best look takes over and the result says why.
+- **Odd arguments still print.** Only a call with nothing to say is an error.
+- **Who a note is from is never the model's to say.** A poster prints FROM only from `PRINS_NAME`.
+
+A poster is an ordinary op, so `draw_batch` can draw on top of one, and `undo`, `save_design` and revising a label all work.
+
+Flag emoji need Pillow built with `raqm`, and without it they fall back to another look. So do right-to-left and other scripts that need shaping, which print with their letters unjoined.
+
 ## Keeping it cheap
 
-- **Short definitions.** All tools together are about 7,300 characters, roughly 1,800 tokens by the usual estimate of 4 characters per token.
+- **Short definitions.** All tools together are about 9,000 characters, roughly 2,250 tokens by the usual estimate of 4 characters per token. A test holds them under that.
 - **Names on demand.** Figure, pattern and font lists sit behind `catalog` instead of in every request.
 - **Few tokens per design.** The Spotify note in the tests is 145 characters of JSON. A preview image is small enough to cost little.
 - **One call.** `draw_batch` draws a whole design at once, and `repeat` and `scatter` avoid repeating yourself.
@@ -76,8 +111,10 @@ Anywhere that takes `ink` accepts `black`, `white`, `invert` or a pattern such a
 
 ## The internal designer
 
-When someone dictates something like "make it a card with a cake", the daemon's small model draws it with the same tool definitions. Ordinary notes use the plain layout and cost nothing extra.
+When someone dictates something like "make it a card with a cake", the daemon's small model calls `draw_poster` once. Ordinary notes use the plain layout and cost nothing extra.
 
-It's more restricted than an MCP client, because its input can come from someone else: it can't read files, fetch arbitrary URLs, or print. It stops after 4 turns.
+It gets that one tool and is done as soon as it has drawn. On Haiku the call is forced, which skips thinking. Newer Sonnet and Opus models refuse a forced call, so they get `auto` instead and may think. `scripts/poster_eval.py` measures time and tokens on real briefs.
+
+It's more restricted than an MCP client, because its input can come from someone else: it can't read files, fetch arbitrary URLs, or print. A refused call goes back once, so it makes at most 2 calls.
 
 An MCP client is trusted like any other tool you connect: `draw_image` and `draw_svg` can read local files and URLs on its behalf.
