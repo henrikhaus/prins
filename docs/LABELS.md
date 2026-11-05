@@ -56,6 +56,8 @@ hold 5 ─► board streams 16 kHz PCM ─► Mac: Whisper (local) ─► text
 | `src/prins/labels.py` | The state machine. Start here |
 | `src/prins/labeldesigner.py` | The drawing agent: prompt, tool loop, web search, revising |
 | `src/prins/design/` | The design engine (figures, logos, SVG, QR, fonts) that the agent draws with |
+| `src/prins/sitelogos.py` | Finds a company's own logo on its homepage |
+| `src/prins/inbox.py` | Reads one person's Slack DMs through `sz` |
 | `src/prins/drawing.py` | Quality checks on a finished design, and the thumbnail |
 | `src/prins/stt.py` | Local Whisper (`faster-whisper`) |
 | `src/prins/labelboard.py` | Board protocol |
@@ -66,13 +68,38 @@ The agent starts with `draw_poster` (see [MCP.md](MCP.md#posters)), can compare 
 
 ## Web access
 
-The agent can search the web and read pages (Anthropic's `web_search` and `web_fetch`, at most 3 of each per design) to find out what real things look like or say. It is told to search only when you name something real it cannot draw from knowledge. A search costs about one US cent. `draw_logo` covers brands without searching. `prins labels --no-web` or `prins label-draw --no-web` turns the web off.
+When the instruction names a real company, organization, brand, product, place or event, the agent looks it up before it draws, and uses the real logo and wording instead of inventing a generic one. Private people named on a badge are never looked up. The steps:
+
+1. `draw_logo` for a well-known brand (a catalog of 3000+ logos, no search).
+2. Otherwise Anthropic's `web_search` finds the company's website (at most 3 searches and 3 page reads per design, about one US cent per search).
+3. `find_logo_images` (`src/prins/sitelogos.py`) reads the company's homepage on the Mac and lists candidate logo images, best first: the site's own data, SVG and app icons, then images merely called "logo" (often other companies' customer logos), then the social share image.
+4. The agent loads one with `draw_svg` or `draw_image`, checks it with `preview`, and tries the next if it is wrong. If nothing works it sets the name in good type and says no logo was found in the summary.
+
+The agent's tool calls and any errors are in the `prins labels` log. `--no-web` on `prins labels` or `prins label-draw` turns the web off.
 
 Web pages and your words are both untrusted, so the agent can only draw:
 - It has no print, save, send or file tools. Nothing prints until you press 6, and you see the thumbnail first.
-- Images and SVGs it loads from a URL go through a guard (`check_public_url` in `design/assets.py`): public `http(s)` addresses on ports 80 and 443 only, no logins in the URL, no loopback, home network, link-local or cloud-metadata addresses, and every redirect hop is checked. Local files are refused. SVGs that link to other files are refused.
+- Images and SVGs it loads from a URL go through a guard (`check_public_url` in `design/assets.py`): public `http(s)` addresses on ports 80 and 443 only, no logins in the URL, no loopback, home network, link-local or cloud-metadata addresses, and every redirect hop is checked. Local files are refused, and so are SVGs that link to other files.
+- It may only load images from sites that appeared in what you said, in search results, or in `find_logo_images` results. `find_logo_images` itself takes a plain homepage address with no query string, fragment or login, because a company's own site is usually learned from text, not from a result address.
 - `web_fetch` is told not to treat URLs from the agent's own tool results as fair game.
 - A residual risk: the guard resolves the name before downloading, so a hostile DNS server could still swap the address in between.
+
+## Inbox: messages from Henrik
+
+Messages Henrik Hausberg sends you on Slack appear on the desk. `prins labels` asks System Zero's `sz` command (already signed in on this Mac) for news once a second, so there is no Slack app, no open port and no webhook.
+
+```
+Slack ─► System Zero ─► sz msg ls ─► prins labels ─► agent: task note, design, or skip ─► queue ─► screen
+```
+
+- **Who counts.** Only messages in the configured DM, from the configured Slack user id, not yours, not automated. A display name proves nothing (anyone can copy one), so it is the id that decides. `.env` has `PRINS_INBOX_USER_ID`, `PRINS_INBOX_CONVERSATION` (the DM's id, the end of its Slack URL) and `PRINS_INBOX_NAME` (what is printed as the sender). All three are needed, and `prins doctor` shows whether the inbox is on. `--no-inbox` turns it off.
+- **What it costs System Zero.** Each look is `sz msg ls --limit 3`, about 13 KB. A new message always makes its conversation the newest, so three is enough. Only when the DM has something new does it fetch the whole thread. After a start it looks wide once (60 conversations), in case the DM was busy while the daemon was off.
+- **No replays.** The position is saved in `~/.prins/inbox.json`. The first ever run starts from now, so old DMs never print. Messages that arrived while the daemon was off are picked up when it starts, newest ten, up to a day old.
+- **The agent decides what a message becomes** (`design_message` in `labeldesigner.py`): a request or reminder becomes a task note with the action as the headline, in the message's language; a request to make something is designed; chit-chat, thanks, links and codes are skipped and nothing appears.
+- **Who it is from is printed by us.** The strip at the bottom of the note (a line and "from Henrik Hausberg") is drawn after the agent is done, over whatever is there, and the agent is told to leave it empty. The sender comes from our settings, never from the model or the message. The message text is untrusted: the agent can only draw.
+- **A queue, not a replacement.** A finished message never replaces what is on the screen, yours or another message. The screen shows "+N" for how many wait, and button 4 says "next" when there is one. Discard (4) moves on to the next message. Print (6) prints the one on the screen, and it stays for a second copy. Holding 5 changes it by voice, with the message as the first instruction.
+- **Nothing is lost.** If the model is down, or more than 20 messages an hour arrive (`PRINS_INBOX_MAX_PER_HOUR`), the message still arrives, as plain big text with the same footer, and costs nothing.
+- **System Zero down?** The log says so once, then every minute, and the poller backs off up to 30 s. It recovers by itself.
 
 ## Board protocol
 

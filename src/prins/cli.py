@@ -196,13 +196,26 @@ def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
 
     threading.Thread(target=warm, name="whisper-warmup", daemon=True).start()
     device = LabelBoard(cfg.board_port)
-    LabelMaker(device, stt, designer, printer, save_dir=cfg.labels_dir).start()
+    maker = LabelMaker(device, stt, designer, printer, save_dir=cfg.labels_dir, max_incoming_per_hour=cfg.inbox_max_per_hour)
+    maker.start()
+    stop = threading.Event()
+    if cfg.inbox_enabled and not args.no_inbox:
+        from .inbox import SzInbox
+
+        if shutil.which("sz") is None:
+            log.warning("The inbox needs System Zero's `sz` command, which is not on the PATH, so messages from %s will not arrive.", cfg.inbox_name)
+        else:
+            inbox = SzInbox(user_id=cfg.inbox_user_id, conversation=cfg.inbox_conversation, name=cfg.inbox_name,
+                            state_path=cfg.inbox_state_path, interval=cfg.inbox_interval)
+            threading.Thread(target=inbox.run, args=(maker.incoming, stop), name="inbox", daemon=True).start()
+            log.info("Inbox on: messages from %s become notes here.", cfg.inbox_name)
     log.info("Label maker running%s. Hold button 5 and talk.", " (dry run: nothing is printed)" if args.dry_run else "")
     try:
         threading.Event().wait()
     except KeyboardInterrupt:
         pass
     finally:
+        stop.set()
         device.close()
         server.stop()
     return 0
@@ -339,6 +352,11 @@ def cmd_doctor(args: argparse.Namespace, cfg: Config) -> int:
 
     stt_ok = importlib.util.find_spec("faster_whisper") is not None
     line(stt_ok, "Speech to text", f"Whisper {cfg.stt_model}" if stt_ok else 'not installed: pip install -e ".[labels]"')
+    if cfg.inbox_enabled:
+        sz_ok = shutil.which("sz") is not None
+        line(sz_ok, "Inbox", f"{cfg.inbox_name} (DM {cfg.inbox_conversation}) every {cfg.inbox_interval:g} s" if sz_ok else "needs the `sz` command on the PATH")
+    else:
+        line(False, "Inbox", "not configured: PRINS_INBOX_USER_ID, PRINS_INBOX_CONVERSATION and PRINS_INBOX_NAME")
     printer_up = LabelPrinter(cfg.label_printer_url).reachable()
     line(printer_up, "Label printer server", cfg.label_printer_url if printer_up else "not running, `prins labels` starts it")
     line(bool(cfg.slack_bot_token and cfg.slack_app_token), "Slack", "configured" if cfg.slack_bot_token else "not configured")
@@ -371,6 +389,7 @@ def main(argv: list[str] | None = None) -> int:
     labels = sub.add_parser("labels", help="the label maker: talk to design a label, print it from the board")
     labels.add_argument("--dry-run", action="store_true", help="the printer server accepts prints but prints nothing")
     labels.add_argument("--no-web", action="store_true", help="the drawing agent may not search or read the web")
+    labels.add_argument("--no-inbox", action="store_true", help="do not read Slack messages through System Zero")
     labels.add_argument("--no-server", action="store_true", help="do not start printer/server.py, it is running already")
     labels.set_defaults(func=cmd_labels)
     draw = sub.add_parser("label-draw", help="ask the drawing agent for one label design, without the board")

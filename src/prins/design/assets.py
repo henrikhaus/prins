@@ -184,24 +184,33 @@ class _GuardedRedirects(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def _download(url: str, guarded: bool = False) -> bytes:
+def _download(url: str, guarded: bool = False, cache: bool = True, limit: int = MAX_DOWNLOAD_BYTES, truncate: bool = False) -> bytes:
     if guarded:
         check_public_url(url)
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cached = CACHE_DIR / hashlib.sha256(url.encode()).hexdigest()
-    if cached.exists():
-        return cached.read_bytes()
+    if cache:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        if cached.exists():
+            return cached.read_bytes()
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
     opener = urllib.request.build_opener(_GuardedRedirects) if guarded else urllib.request.build_opener()
     try:
         with opener.open(request, timeout=15) as response:
-            data = response.read(MAX_DOWNLOAD_BYTES + 1)
+            data = response.read(limit + 1)
     except (urllib.error.URLError, OSError) as exc:
         raise AssetError(f"Couldn't download {url}: {exc}") from exc
-    if len(data) > MAX_DOWNLOAD_BYTES:
-        raise AssetError(f"{url} is over 20 MB.")
-    cached.write_bytes(data)
+    if len(data) > limit:
+        if not truncate:
+            raise AssetError(f"{url} is over {limit // (1024 * 1024)} MB.")
+        data = data[:limit]
+    if cache:
+        cached.write_bytes(data)
     return data
+
+
+def fetch_public_page(url: str, limit: int = 2 * 1024 * 1024) -> bytes:
+    """A web page, fresh and never cached, cut at `limit` bytes. Public addresses only."""
+    return _download(url, guarded=True, cache=False, limit=limit, truncate=True)
 
 
 def logo_svg(name: str) -> bytes:
