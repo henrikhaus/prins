@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as DemoRouteImport } from './routes/demo'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppDevicesRouteImport } from './routes/_app/devices'
@@ -25,6 +26,11 @@ import { Route as ApiDeviceSyncRouteImport } from './routes/api/device/sync'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DemoRoute = DemoRouteImport.update({
+  id: '/demo',
+  path: '/demo',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -90,6 +96,7 @@ const ApiDeviceSyncRoute = ApiDeviceSyncRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/devices': typeof AppDevicesRoute
   '/friends': typeof AppFriendsRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/api/device/sync': typeof ApiDeviceSyncRoute
 }
 export interface FileRoutesByTo {
+  '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/devices': typeof AppDevicesRoute
   '/friends': typeof AppFriendsRoute
@@ -119,6 +127,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/demo': typeof DemoRoute
   '/login': typeof LoginRoute
   '/_app/devices': typeof AppDevicesRoute
   '/_app/friends': typeof AppFriendsRoute
@@ -136,6 +145,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/demo'
     | '/login'
     | '/devices'
     | '/friends'
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/api/device/sync'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/demo'
     | '/login'
     | '/devices'
     | '/friends'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/demo'
     | '/login'
     | '/_app/devices'
     | '/_app/friends'
@@ -180,6 +192,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  DemoRoute: typeof DemoRoute
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -195,6 +208,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/demo': {
+      id: '/demo'
+      path: '/demo'
+      fullPath: '/demo'
+      preLoaderRoute: typeof DemoRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -306,6 +326,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  DemoRoute: DemoRoute,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

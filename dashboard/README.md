@@ -73,6 +73,10 @@ DEMO_PASSWORD=choose-one bun run seed
 bun run check      # oxlint, oxfmt, tsc, tests
 ```
 
+## Public demo
+
+`/demo` shows the 3D model full screen with no login, to send to potential customers: https://prins.henhau.no/demo. It only shows the concept model. It's labelled as a concept design, so keep it that way until the real thing matches.
+
 ## Temporary
 
 The **3D model** page shows the concept render for demos. `public/demo/product-3d.html` is a copy of `demo/product-3d/index.html`. To remove it, delete `src/routes/_app/product.tsx`, its entry in `src/components/app-shell.tsx`, and `public/demo/`.
