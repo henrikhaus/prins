@@ -40,6 +40,10 @@ class Config:
     printer_dots: int = 384
     m110_url: str = "http://127.0.0.1:8110"
     board_port: str = ""
+    label_model: str = "claude-sonnet-5-5"
+    label_printer_url: str = "http://127.0.0.1:8110"
+    stt_model: str = "turbo"
+    stt_language: str = ""
     handy_binary: Path = HANDY_BINARY
     slack_bot_token: str = ""
     slack_app_token: str = ""
@@ -66,6 +70,10 @@ class Config:
             printer_dots=int(env("PRINS_PRINTER_DOTS", "384")),
             m110_url=env("PRINS_M110_URL", "http://127.0.0.1:8110"),
             board_port=env("PRINS_BOARD_PORT", ""),
+            label_model=env("PRINS_LABEL_MODEL", "claude-sonnet-5-5"),
+            label_printer_url=env("PRINS_LABEL_PRINTER_URL", "http://127.0.0.1:8110"),
+            stt_model=env("PRINS_STT_MODEL", "turbo"),
+            stt_language=env("PRINS_STT_LANGUAGE", ""),
             handy_binary=Path(env("PRINS_HANDY_BINARY", str(HANDY_BINARY))),
             slack_bot_token=env("SLACK_BOT_TOKEN", ""),
             slack_app_token=env("SLACK_APP_TOKEN", ""),
@@ -86,6 +94,10 @@ class Config:
     @property
     def prints_dir(self) -> Path:
         return self.home / "prints"
+
+    @property
+    def labels_dir(self) -> Path:
+        return self.home / "labels"
 
     @property
     def token_path(self) -> Path:

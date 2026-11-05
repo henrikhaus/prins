@@ -1,169 +1,306 @@
-# Prins firmware. The laptop owns all logic; this firmware draws the screen, reports
-# buttons and feeds the printer. The wire protocol is documented in docs/ARCHITECTURE.md.
+# Prins label maker. Hold the talk button and describe a sticky note; the Mac turns the
+# words into a drawing, shows it here and prints it when you press the print button.
+# The Mac owns all the logic (src/prins/labels.py). This firmware streams the microphone
+# while talk is held, draws the screen and runs the lights. Wire protocol: docs/LABELS.md.
 #
-# Ports are the default layout from docs/HARDWARE.md. If yours differ, change them here and
-# run `atech upload firmware` again. Keep the printer on 3 or 4: those are the UART ports.
+# Port 12 holds the board's own reset button, so no module can go there.
 name: prins
 board: 14port
-modules_path: ./my_modules
 
 modules:
-  - {id: st7789_tft, instance: screen, ports: [1, 2]}
-  - {id: thermal_printer, instance: printer, port: 3}
-  - {id: button, instance: talk, port: 9}
-  - {id: button, instance: confirm, port: 10}
-  - {id: button, instance: dismiss, port: 11}
+  - {id: microphone, instance: microphone, ports: [1, 2]}
+  - {id: button, instance: discard, port: 4}      # red: throw the design away
+  - {id: button, instance: talk, port: 5}         # hold and speak
+  - {id: button, instance: printbtn, port: 6}     # green when there is a design to print
+  - {id: neopixel, instance: light, port: 7}
+  - {id: st7735_tft, instance: screen, ports: [9, 10]}   # 160x80
 
 code:
   globals: |
-    #include <Fonts/FreeSans9pt7b.h>
-    #include <Fonts/FreeSansBold12pt7b.h>
-    #include <Fonts/FreeSansBold18pt7b.h>
-    #include <mbedtls/base64.h>
+    #include "mbedtls/base64.h"
 
-    // Text comes from the laptop as ASCII, because these fonts have no other glyphs.
-    static String uiSource = "PRINS", uiFrom, uiTitle = "Starting...", uiDetail, uiHint;
-    static long uiQueue = 0;
-    static uint16_t uiAccent = ATECH_ACCENT;
-    static bool uiFullScreen = true;   // a status page instead of a card
+    // ---- Microphone -------------------------------------------------------------
+    // The capture task fills a ring all the time. Nothing leaves the board unless talk is
+    // held; the last 200 ms are kept so the first word is not clipped.
+    static const size_t RING = 16384;       // samples, 1 s at 16 kHz
+    static const size_t PREROLL = 3200;
+    static const size_t CHUNK = 1200;       // samples per line: 3200 base64 characters
+    static int16_t ring[RING];
+    static volatile size_t ringHead = 0, ringTail = 0;
+    static volatile uint32_t ringDropped = 0;
+    static uint32_t audioSent = 0;
+
+    // Runs on the capture task: copy and return, no Serial, no module calls.
+    static void onMic(const int16_t* s, int n, void*) {
+      size_t head = ringHead;
+      for (int i = 0; i < n; i++) {
+        size_t next = (head + 1) % RING;
+        if (next == ringTail) { ringDropped = ringDropped + 1; continue; }
+        ring[head] = s[i];
+        head = next;
+      }
+      __sync_synchronize();
+      ringHead = head;
+    }
+
+    static void sendAudio(int maxChunks) {
+      static uint8_t pcm[CHUNK * 2];
+      static char b64[CHUNK * 8 / 3 + 8];
+      for (int pass = 0; pass < maxChunks; pass++) {
+        size_t tail = ringTail;
+        size_t avail = (ringHead + RING - tail) % RING;
+        if (avail < CHUNK && !(maxChunks > 2 && avail > 0)) return;   // a flush sends the rest
+        size_t n = avail < CHUNK ? avail : CHUNK;
+        for (size_t i = 0; i < n; i++) {
+          uint16_t v = (uint16_t)ring[tail];
+          pcm[2 * i] = v & 0xFF;
+          pcm[2 * i + 1] = v >> 8;
+          tail = (tail + 1) % RING;
+        }
+        ringTail = tail;
+        size_t olen = 0;
+        mbedtls_base64_encode((unsigned char*)b64, sizeof(b64) - 1, &olen, pcm, n * 2);
+        b64[olen] = 0;
+        audioSent += n;
+        Serial.print("{\"type\":\"event\",\"payload\":{\"event_type\":\"state\",\"key\":\"audio\",\"value\":\"");
+        Serial.print(b64);
+        Serial.println("\"}}");
+      }
+    }
+
+    // ---- What the Mac tells us ----------------------------------------------------
+    enum UiState { S_IDLE, S_LISTENING, S_THINKING, S_READY, S_PRINTING, S_ERROR };
+    static UiState uiState = S_IDLE;
+    static bool uiHasDesign = false;       // discard is lit
+    static bool uiShowPreview = false;
+    static String uiTitle = "Prins", uiDetail = "Hold button 5 and describe a label";
     static bool uiDirty = true;
 
-    // A custom design: the exact 312x216 note, so you see what you're about to approve.
-    static const int16_t NOTE_W = 312, NOTE_H = 216;
-    static const size_t NOTE_BYTES = 39 * 216;
-    static uint8_t uiNote[NOTE_BYTES];
-    static bool uiHasNote = false;
+    // Thumbnail: 2 bits per pixel, 4 pixels per byte, first pixel in the high bits.
+    static uint8_t previewBuf[2400];
+    static int previewW = 0, previewH = 0;
 
-    static void drawNoteCard() {
-      const int16_t W = screen.width(), H = screen.height();
-      const int16_t headerH = H - NOTE_H;
+    static UiState parseState(const String& s) {
+      if (s == "listening") return S_LISTENING;
+      if (s == "thinking") return S_THINKING;
+      if (s == "ready") return S_READY;
+      if (s == "printing") return S_PRINTING;
+      if (s == "error") return S_ERROR;
+      return S_IDLE;
+    }
+
+    // ---- Lights -----------------------------------------------------------------
+    struct Rgb { uint8_t r, g, b; };
+    static const Rgb OFF = {0, 0, 0}, YELLOW = {255, 150, 0}, GREEN = {0, 255, 0}, RED = {255, 0, 0};
+    static const uint8_t LIGHT_MAX = 40, LIGHT_MIN = 4;   // the SDK caps brightness at 51
+
+    struct LightCache { int r = -1, g = -1, b = -1, level = -1; };
+    static LightCache cTalk, cPrint, cDiscard, cGrid;
+
+    static uint8_t glow(unsigned long periodMs) {
+      float phase = (float)(millis() % periodMs) / (float)periodMs;
+      float s = 0.5f - 0.5f * cosf(phase * 6.2831853f);
+      return LIGHT_MIN + (uint8_t)((LIGHT_MAX - LIGHT_MIN) * s);
+    }
+
+    static void applyButton(ButtonModule& b, LightCache& c, Rgb col, uint8_t level) {
+      if (c.r == col.r && c.g == col.g && c.b == col.b && c.level == level) return;
+      c.r = col.r; c.g = col.g; c.b = col.b; c.level = level;
+      if (!col.r && !col.g && !col.b) { b.off(); return; }
+      b.setBrightness(level);
+      b.setColor(col.r, col.g, col.b);
+    }
+
+    static void applyGrid(Rgb col, uint8_t level) {
+      if (cGrid.r == col.r && cGrid.g == col.g && cGrid.b == col.b && cGrid.level == level) return;
+      cGrid.r = col.r; cGrid.g = col.g; cGrid.b = col.b; cGrid.level = level;
+      if (!col.r && !col.g && !col.b) { light.clear(); light.show(); return; }
+      light.setBrightness(level);
+      light.setAll(col.r, col.g, col.b);
+      light.show();
+    }
+
+    static void updateLights() {
+      Rgb talkC = OFF, printC = OFF, gridC = OFF, discardC = uiHasDesign ? RED : OFF;
+      uint8_t talkL = LIGHT_MAX, printL = LIGHT_MAX, gridL = LIGHT_MAX;
+      switch (uiState) {
+        case S_LISTENING: talkC = RED; break;
+        case S_THINKING:  talkC = YELLOW; gridC = YELLOW; talkL = gridL = glow(1600); break;
+        case S_READY:     talkC = YELLOW; printC = GREEN; gridC = GREEN; break;
+        case S_PRINTING:  printC = GREEN; gridC = GREEN; printL = gridL = glow(900); discardC = OFF; break;
+        case S_ERROR:     talkC = YELLOW; gridC = RED; gridL = glow(500); break;
+        default: break;
+      }
+      applyButton(talk, cTalk, talkC, talkL);
+      applyButton(printbtn, cPrint, printC, printL);
+      applyButton(discard, cDiscard, discardC, LIGHT_MAX);
+      applyGrid(gridC, gridL);
+    }
+
+    // ---- Screen (160x80, built-in 6x8 font) ----------------------------------------
+    static uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+      return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+    }
+
+    static uint16_t accentFor(UiState s) {
+      switch (s) {
+        case S_LISTENING: return rgb565(255, 70, 70);
+        case S_THINKING:  return rgb565(255, 170, 0);
+        case S_READY:     return rgb565(60, 230, 90);
+        case S_PRINTING:  return rgb565(60, 230, 90);
+        case S_ERROR:     return rgb565(255, 70, 70);
+        default:          return rgb565(150, 150, 150);
+      }
+    }
+
+    // Word wrap into at most maxLines lines of cols characters; the rest is cut.
+    static int wrapLines(const String& s, int cols, String* out, int maxLines) {
+      int n = 0, i = 0, len = s.length();
+      while (i < len && n < maxLines) {
+        while (i < len && s[i] == ' ') i++;
+        if (i >= len) break;
+        int end = i + cols;
+        if (end >= len) {
+          end = len;
+        } else {
+          int brk = end;
+          while (brk > i && s[brk] != ' ') brk--;
+          if (brk > i) end = brk;
+        }
+        out[n++] = s.substring(i, end);
+        i = end;
+      }
+      return n;
+    }
+
+    static void drawScreen() {
+      static const uint16_t grays[4] = {0x0000, 0x5AEB, 0xAD75, 0xFFFF};
+      const int W = screen.width();
+      const uint16_t accent = accentFor(uiState);
+      String lines[8];
       screen.clear();
-      screen.fillRect(0, 0, W, headerH, uiAccent);
-      screen.setFont(&FreeSans9pt7b);
-      screen.setTextSize(1);
-      screen.setTextColor(ATECH_BG);
-      String count = String(uiQueue);
-      const int16_t countW = screen.textWidth(count);
-      screen.setCursor(W - countW - 6, headerH - 7);
-      screen.print(count);
-      String origin = uiFrom.length() ? uiSource + " - " + uiFrom : uiSource;
-      screen.setCursor(6, headerH - 7);
-      screen.print(fitText(screen, origin, W - countW - 20));
-
-      const int16_t left = (W - NOTE_W) / 2;
-      screen.fillRect(0, headerH, W, NOTE_H, ST7789_TFT::COLOR_WHITE);
-      for (int16_t y = 0; y < NOTE_H; y++) {
-        for (int16_t x = 0; x < NOTE_W; x++) {
-          if (uiNote[y * 39 + x / 8] & (0x80 >> (x % 8))) {
-            screen.drawPixel(left + x, headerH + y, ST7789_TFT::COLOR_BLACK);
+      if (uiShowPreview && previewW > 0 && previewH > 0) {
+        const int rowBytes = (previewW + 3) / 4;
+        for (int y = 0; y < previewH && y < 80; y++) {
+          for (int x = 0; x < previewW; x++) {
+            uint8_t v = (previewBuf[y * rowBytes + (x >> 2)] >> (6 - 2 * (x & 3))) & 3;
+            screen.drawPixel(x, y, grays[v]);
           }
+        }
+        const int tx = previewW + 5;
+        const int cols = (W - tx - 1) / 6;
+        screen.drawLine(previewW + 2, 0, previewW + 2, 79, accent);
+        screen.setTextSize(1);
+        screen.setTextColor(accent);
+        screen.setCursor(tx, 2);
+        screen.print(uiTitle.substring(0, cols).c_str());
+        screen.setTextColor(rgb565(170, 170, 170));
+        int n = wrapLines(uiDetail, cols, lines, 8);
+        for (int i = 0; i < n; i++) {
+          screen.setCursor(tx, 14 + 10 * i);
+          screen.print(lines[i].c_str());
+        }
+      } else {
+        screen.fillRect(0, 0, 160, 3, accent);
+        screen.setTextSize(2);
+        screen.setTextColor(accent);
+        screen.setCursor(4, 9);
+        screen.print(uiTitle.substring(0, (W - 8) / 12).c_str());
+        screen.setTextSize(1);
+        screen.setTextColor(rgb565(190, 190, 190));
+        int n = wrapLines(uiDetail, (W - 8) / 6, lines, 6);
+        for (int i = 0; i < n; i++) {
+          screen.setCursor(4, 32 + 10 * i);
+          screen.print(lines[i].c_str());
         }
       }
       screen.display();
     }
 
-    static void drawCard() {
-      const int16_t W = screen.width(), H = screen.height();
-      screen.clear();
-
-      // Header: where the message came from, and how many are waiting.
-      const int16_t headerH = 34;
-      screen.fillRect(0, 0, W, headerH, uiAccent);
-      String count = String(uiQueue);
-      screen.setFont(&FreeSansBold12pt7b);
-      screen.setTextSize(1);
-      const int16_t badgeW = screen.textWidth(count) + 18;
-      screen.fillRoundRect(W - badgeW - 6, 5, badgeW, headerH - 10, 6, ATECH_BG);
-      screen.setTextColor(ATECH_FG);
-      screen.setCursor(W - badgeW + 3, 25);
-      screen.print(count);
-
-      String origin = uiFrom.length() ? uiSource + " - " + uiFrom : uiSource;
-      screen.setFont(&FreeSans9pt7b);
-      screen.setTextColor(ATECH_BG);
-      screen.setCursor(8, 23);
-      screen.print(fitText(screen, origin, W - badgeW - 22));
-
-      // Body: the task, then the detail in whatever room is left.
-      int16_t y = headerH + 8;
-      const int16_t footerH = 26, bodyW = W - 16, bodyBottom = H - footerH - 4;
-      screen.setFont(&FreeSansBold12pt7b);
-      const int16_t titleLineH = screen.lineHeight();
-      const int titleLines = drawWrappedText(screen, uiTitle, 0, 8, y, bodyW, min<int16_t>(bodyBottom - y, titleLineH * 4),
-                                             &FreeSansBold12pt7b, ATECH_FG);
-      y += titleLineH * min(titleLines, 4) + 6;
-      if (uiDetail.length() && bodyBottom - y > 16) {
-        drawWrappedText(screen, uiDetail, 0, 8, y, bodyW, bodyBottom - y, &FreeSans9pt7b, ATECH_MUTED);
-      }
-
-      drawStatusBar(screen, uiHint.c_str(), &FreeSans9pt7b);
-      screen.display();
-    }
-
-    static void drawStatusPage() {
-      const int16_t W = screen.width(), H = screen.height();
-      screen.fillScreen(uiAccent);
-      screen.setFont(&FreeSansBold18pt7b);
-      screen.setTextSize(1);
-      screen.setTextColor(ATECH_BG);
-      String title = fitText(screen, uiTitle, W - 16);
-      screen.setCursor((W - screen.textWidth(title)) / 2, H / 2 - 4);
-      screen.print(title);
-      if (uiDetail.length()) {
-        drawWrappedText(screen, uiDetail, 0, 12, H / 2 + 14, W - 24, H / 2 - 20, &FreeSans9pt7b, ATECH_BG);
-      }
-      screen.display();
-    }
-
   setup: |
-    // Port 1-2 is the board's left column, where rotation 1 is upright. On the right
-    // column use 3. The SDK has not measured this: if the screen is upside down, swap it.
+    microphone.onAudio(onMic, nullptr);
+    talk.setBrightness(LIGHT_MAX);
+    printbtn.setBrightness(LIGHT_MAX);
+    discard.setBrightness(LIGHT_MAX);
+    light.setBrightness(LIGHT_MAX);
+    // Landscape. Rotation 3 was upside down in ports 9-10; if that changes, swap 1 and 3.
     screen.setRotation(1);
-    talk.setColor(0, 80, 255);
-    confirm.setColor(0, 255, 0);
-    dismiss.setColor(255, 0, 0);
 
   loop: |
-    if (atech_action == "ui_design") {
-      // One piece of a note: {"o":byte offset,"d":base64}. The laptop sends ui_card when done.
-      long offset = atechNum(atech_value, "o", -1);
-      String piece = atechJsonString(atech_value, "d");
-      size_t written = 0;
-      if (offset < 0 || offset >= (long)NOTE_BYTES) {
-        atechFail("offset is outside the note");
-      } else if (mbedtls_base64_decode(uiNote + offset, NOTE_BYTES - offset, &written,
-                                       (const unsigned char*)piece.c_str(), piece.length()) != 0) {
-        atechFail("bad base64, or too much data for the note");
+    // ---- Actions from the Mac ----------------------------------------------------
+    if (atech_action == "ui_state") {
+      // {"state":"ready","design":1,"preview":1,"title":"Ready","detail":"..."}
+      uiState = parseState(atechJsonString(atech_value, "state"));
+      uiHasDesign = atechNum(atech_value, "design", 0) != 0;
+      uiShowPreview = atechNum(atech_value, "preview", 0) != 0;
+      uiTitle = atechJsonString(atech_value, "title");
+      uiDetail = atechJsonString(atech_value, "detail");
+      uiDirty = true;
+      atechDone();
+    } else if (atech_action == "ui_preview") {
+      // "W,H:<base64 of 2 bit pixels>", at most 2400 bytes decoded
+      int colon = atech_value.indexOf(':'), comma = atech_value.indexOf(',');
+      int w = atech_value.toInt();
+      int h = (comma > 0) ? atech_value.substring(comma + 1).toInt() : 0;
+      size_t need = (size_t)((w + 3) / 4) * (size_t)h;
+      size_t got = 0;
+      if (colon < 0 || w < 1 || w > 120 || h < 1 || h > 80 || need > sizeof(previewBuf)) {
+        atechFail("bad preview size");
+      } else {
+        String b64 = atech_value.substring(colon + 1);
+        int rc = mbedtls_base64_decode(previewBuf, sizeof(previewBuf), &got,
+                                       (const unsigned char*)b64.c_str(), b64.length());
+        if (rc != 0 || got < need) {
+          atechFail("bad preview data");
+        } else {
+          previewW = w;
+          previewH = h;
+          uiDirty = true;
+        }
       }
       atechDone();
     }
 
-    if (atech_action == "ui_card" || atech_action == "ui_status") {
-      uiFullScreen = (atech_action == "ui_status");
-      uiHasNote = atechNum(atech_value, "design", 0) == 1;
-      uiSource = atechJsonString(atech_value, "source");
-      uiFrom = atechJsonString(atech_value, "from");
-      uiTitle = atechJsonString(atech_value, "title");
-      uiDetail = atechJsonString(atech_value, "detail");
-      uiHint = atechJsonString(atech_value, "hint");
-      uiQueue = atechNum(atech_value, "queue", 0);
-      uiAccent = (uint16_t)atechNum(atech_value, "accent", ATECH_ACCENT);
+    // ---- Talk: stream the microphone while the button is held ----------------------
+    static bool streaming = false;
+    static unsigned long talkUpAt = 0;
+    const bool talkDown = talk.isPressed();
+    if (talkDown) talkUpAt = 0;
+    if (talkDown && !streaming && uiState != S_THINKING && uiState != S_PRINTING) {
+      streaming = true;
+      audioSent = 0;
+      ringDropped = 0;
+      uiState = S_LISTENING;          // at once, without waiting for the Mac
+      uiShowPreview = false;
+      uiTitle = "Listening";
+      uiDetail = "Release when you are done";
       uiDirty = true;
-      atechDone();
+      // The SDK's setup makes Serial.setTxTimeoutMs(0): a write that does not fit the 256 byte
+      // USB buffer is thrown away, and a 3300 character audio line would arrive cut in two.
+      // While talk is held a host is listening, so let writes wait for it.
+      Serial.setTxTimeoutMs(200);
+      Serial.println("{\"type\":\"event\",\"payload\":{\"event_type\":\"state\",\"key\":\"audio_start\",\"value\":1}}");
+    }
+    if (streaming) {
+      if (!talkDown && talkUpAt == 0) talkUpAt = millis();
+      sendAudio(2);
+      if (!talkDown && millis() - talkUpAt >= 250) {   // keep 250 ms so the last word is not cut
+        sendAudio(40);
+        streaming = false;
+        talkUpAt = 0;
+        Serial.printf("{\"type\":\"event\",\"payload\":{\"event_type\":\"state\",\"key\":\"audio_end\",\"value\":{\"samples\":%u,\"dropped\":%u}}}\n",
+                      (unsigned)audioSent, (unsigned)ringDropped);
+        Serial.flush();
+        Serial.setTxTimeoutMs(0);       // Back to never blocking, as the SDK wants it.
+      }
+    } else {
+      ringTail = (ringHead + RING - PREROLL) % RING;    // idle: keep only the pre-roll
     }
 
-    // Light the talk button at once, without waiting for the laptop to answer.
-    static bool talkWasDown = false;
-    bool talkDown = talk.isPressed();
-    if (talkDown != talkWasDown) {
-      talkWasDown = talkDown;
-      if (talkDown) talk.setColor(255, 0, 0); else talk.setColor(0, 80, 255);
-    }
-
-    static EveryTimer frameLimit;
+    // ---- Lights and screen ---------------------------------------------------------
+    static EveryTimer lightTick, frameLimit;
+    if (lightTick.ready(25)) updateLights();
     if (uiDirty && frameLimit.ready(40)) {
       uiDirty = false;
-      if (uiFullScreen) drawStatusPage();
-      else if (uiHasNote) drawNoteCard();
-      else drawCard();
+      drawScreen();
     }

@@ -1,4 +1,4 @@
-"""Command line: `prins run`, `doctor`, `send`, `test-print`, `install-hook`, `screen-test`."""
+"""Command line: `prins run`, `labels`, `label-draw`, `mic-test`, `mcp`, `doctor`, `send`, `test-print`, `install-hook`, `screen-test`."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from .config import HANDY_HOOK_PATH, Config, load_dotenv
 from .design.designer import Designer
 from .device import AtechDevice, CardView, Device, SimDevice, StatusView
 from .engine import Engine
+from .labelprinter import LabelPrinter, PrinterError, PrinterServer
 from .handy import Handy
 from .printers import AtechPrinter, M110Printer, PreviewPrinter, Printer, SerialPrinter
 from .render import render_note
@@ -170,6 +171,77 @@ def _sim_prompt(device: SimDevice) -> None:
             device.press("talk", talking)
 
 
+def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
+    """The label maker: starts the printer server and the board loop together."""
+    from .designer import Designer
+    from .labelboard import LabelBoard
+    from .labels import LabelMaker
+    from .stt import WhisperTranscriber
+
+    printer = LabelPrinter(cfg.label_printer_url, dry_run=args.dry_run)
+    server = PrinterServer(printer)
+    if not args.no_server:
+        try:
+            server.start()
+        except PrinterError as exc:
+            log.warning("%s Designs still work and are saved to %s, but printing will fail.", exc, cfg.labels_dir)
+    designer = Designer.from_env(cfg.label_model, printer.canvas())
+    stt = WhisperTranscriber(cfg.stt_model, cfg.stt_language)
+
+    def warm() -> None:
+        try:
+            stt.warm()
+        except Exception as exc:
+            log.error("Speech to text is not ready: %s", exc)
+
+    threading.Thread(target=warm, name="whisper-warmup", daemon=True).start()
+    device = LabelBoard(cfg.board_port)
+    LabelMaker(device, stt, designer, printer, save_dir=cfg.labels_dir).start()
+    log.info("Label maker running%s. Hold button 5 and talk.", " (dry run: nothing is printed)" if args.dry_run else "")
+    try:
+        threading.Event().wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        device.close()
+        server.stop()
+    return 0
+
+
+def cmd_label_draw(args: argparse.Namespace, cfg: Config) -> int:
+    """Ask the drawing agent for a design without any hardware. Saves a PNG and prints the shapes."""
+    from .designer import Design, Designer, DesignError
+    from .drawing import render_design
+
+    designer = Designer.from_env(cfg.label_model, LabelPrinter(cfg.label_printer_url).canvas())
+    current = None
+    if args.start_from:
+        ops = json.loads(Path(args.start_from).read_text())
+        current = Design(ops, "", "", render_design(ops, designer.size))
+    try:
+        design = designer.design(args.instruction, current)
+    except DesignError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    out = Path(args.output) if args.output else cfg.labels_dir / f"draw-{time.strftime('%Y%m%d-%H%M%S')}.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    design.image.save(out)
+    print(json.dumps(design.ops, indent=1))
+    print(f"{design.title}: {design.summary}\nWarnings: {design.warnings or 'none'}\nSaved {out}", file=sys.stderr)
+    return 0
+
+
+def cmd_mic_test(args: argparse.Namespace, cfg: Config) -> int:
+    """Hold button 5, talk, and hear the board's microphone played back."""
+    from . import mictest
+
+    try:
+        mictest.run(cfg.board_port, cfg.home / "mic-tests", args.boosted)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_send(args: argparse.Namespace, cfg: Config) -> int:
     body = {"text": args.text, "source": args.source, "sender": args.sender}
     request = urllib.request.Request(
@@ -266,6 +338,12 @@ def cmd_doctor(args: argparse.Namespace, cfg: Config) -> int:
         line(up, "Printer", "M110 server is running" if up else "M110 server isn't running: cd printer && uv run server.py")
     else:
         line(True, "Printer", cfg.printer + (f" on {cfg.printer_port}" if cfg.printer_port else ""))
+    import importlib.util
+
+    stt_ok = importlib.util.find_spec("faster_whisper") is not None
+    line(stt_ok, "Speech to text", f"Whisper {cfg.stt_model}" if stt_ok else 'not installed: pip install -e ".[labels]"')
+    printer_up = LabelPrinter(cfg.label_printer_url).reachable()
+    line(printer_up, "Label printer server", cfg.label_printer_url if printer_up else "not running, `prins labels` starts it")
     line(bool(cfg.slack_bot_token and cfg.slack_app_token), "Slack", "configured" if cfg.slack_bot_token else "not configured")
     if cfg.slack_bot_token and not cfg.slack_owner:
         line(False, "Slack owner", "PRINS_SLACK_OWNER is empty, so :printer: reactions do nothing")
@@ -293,6 +371,18 @@ def main(argv: list[str] | None = None) -> int:
     send.add_argument("--sender", default="")
     send.set_defaults(func=cmd_send)
 
+    labels = sub.add_parser("labels", help="the label maker: talk to design a label, print it from the board")
+    labels.add_argument("--dry-run", action="store_true", help="the printer server accepts prints but prints nothing")
+    labels.add_argument("--no-server", action="store_true", help="do not start printer/server.py, it is running already")
+    labels.set_defaults(func=cmd_labels)
+    draw = sub.add_parser("label-draw", help="ask the drawing agent for one label design, without the board")
+    draw.add_argument("instruction")
+    draw.add_argument("--from", dest="start_from", help="a JSON file of shapes to revise")
+    draw.add_argument("-o", "--output", help="where to save the PNG")
+    draw.set_defaults(func=cmd_label_draw)
+    mic = sub.add_parser("mic-test", help="hold button 5 and hear what the board's microphone picked up")
+    mic.add_argument("--boosted", action="store_true", help="play what Whisper hears (level raised) instead of the raw sound")
+    mic.set_defaults(func=cmd_mic_test)
     sub.add_parser("test-print", help="print one test note").set_defaults(func=cmd_test_print)
     screen = sub.add_parser("screen-test", help="show every screen state on the board")
     screen.add_argument("--seconds", type=float, default=4.0)

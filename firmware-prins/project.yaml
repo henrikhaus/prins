@@ -1,0 +1,169 @@
+# Prins firmware. The laptop owns all logic; this firmware draws the screen, reports
+# buttons and feeds the printer. The wire protocol is documented in docs/ARCHITECTURE.md.
+#
+# Ports are the default layout from docs/HARDWARE.md. If yours differ, change them here and
+# run `atech upload firmware` again. Keep the printer on 3 or 4: those are the UART ports.
+name: prins
+board: 14port
+modules_path: ./my_modules
+
+modules:
+  - {id: st7789_tft, instance: screen, ports: [1, 2]}
+  - {id: thermal_printer, instance: printer, port: 3}
+  - {id: button, instance: talk, port: 9}
+  - {id: button, instance: confirm, port: 10}
+  - {id: button, instance: dismiss, port: 11}
+
+code:
+  globals: |
+    #include <Fonts/FreeSans9pt7b.h>
+    #include <Fonts/FreeSansBold12pt7b.h>
+    #include <Fonts/FreeSansBold18pt7b.h>
+    #include <mbedtls/base64.h>
+
+    // Text comes from the laptop as ASCII, because these fonts have no other glyphs.
+    static String uiSource = "PRINS", uiFrom, uiTitle = "Starting...", uiDetail, uiHint;
+    static long uiQueue = 0;
+    static uint16_t uiAccent = ATECH_ACCENT;
+    static bool uiFullScreen = true;   // a status page instead of a card
+    static bool uiDirty = true;
+
+    // A custom design: the exact 312x216 note, so you see what you're about to approve.
+    static const int16_t NOTE_W = 312, NOTE_H = 216;
+    static const size_t NOTE_BYTES = 39 * 216;
+    static uint8_t uiNote[NOTE_BYTES];
+    static bool uiHasNote = false;
+
+    static void drawNoteCard() {
+      const int16_t W = screen.width(), H = screen.height();
+      const int16_t headerH = H - NOTE_H;
+      screen.clear();
+      screen.fillRect(0, 0, W, headerH, uiAccent);
+      screen.setFont(&FreeSans9pt7b);
+      screen.setTextSize(1);
+      screen.setTextColor(ATECH_BG);
+      String count = String(uiQueue);
+      const int16_t countW = screen.textWidth(count);
+      screen.setCursor(W - countW - 6, headerH - 7);
+      screen.print(count);
+      String origin = uiFrom.length() ? uiSource + " - " + uiFrom : uiSource;
+      screen.setCursor(6, headerH - 7);
+      screen.print(fitText(screen, origin, W - countW - 20));
+
+      const int16_t left = (W - NOTE_W) / 2;
+      screen.fillRect(0, headerH, W, NOTE_H, ST7789_TFT::COLOR_WHITE);
+      for (int16_t y = 0; y < NOTE_H; y++) {
+        for (int16_t x = 0; x < NOTE_W; x++) {
+          if (uiNote[y * 39 + x / 8] & (0x80 >> (x % 8))) {
+            screen.drawPixel(left + x, headerH + y, ST7789_TFT::COLOR_BLACK);
+          }
+        }
+      }
+      screen.display();
+    }
+
+    static void drawCard() {
+      const int16_t W = screen.width(), H = screen.height();
+      screen.clear();
+
+      // Header: where the message came from, and how many are waiting.
+      const int16_t headerH = 34;
+      screen.fillRect(0, 0, W, headerH, uiAccent);
+      String count = String(uiQueue);
+      screen.setFont(&FreeSansBold12pt7b);
+      screen.setTextSize(1);
+      const int16_t badgeW = screen.textWidth(count) + 18;
+      screen.fillRoundRect(W - badgeW - 6, 5, badgeW, headerH - 10, 6, ATECH_BG);
+      screen.setTextColor(ATECH_FG);
+      screen.setCursor(W - badgeW + 3, 25);
+      screen.print(count);
+
+      String origin = uiFrom.length() ? uiSource + " - " + uiFrom : uiSource;
+      screen.setFont(&FreeSans9pt7b);
+      screen.setTextColor(ATECH_BG);
+      screen.setCursor(8, 23);
+      screen.print(fitText(screen, origin, W - badgeW - 22));
+
+      // Body: the task, then the detail in whatever room is left.
+      int16_t y = headerH + 8;
+      const int16_t footerH = 26, bodyW = W - 16, bodyBottom = H - footerH - 4;
+      screen.setFont(&FreeSansBold12pt7b);
+      const int16_t titleLineH = screen.lineHeight();
+      const int titleLines = drawWrappedText(screen, uiTitle, 0, 8, y, bodyW, min<int16_t>(bodyBottom - y, titleLineH * 4),
+                                             &FreeSansBold12pt7b, ATECH_FG);
+      y += titleLineH * min(titleLines, 4) + 6;
+      if (uiDetail.length() && bodyBottom - y > 16) {
+        drawWrappedText(screen, uiDetail, 0, 8, y, bodyW, bodyBottom - y, &FreeSans9pt7b, ATECH_MUTED);
+      }
+
+      drawStatusBar(screen, uiHint.c_str(), &FreeSans9pt7b);
+      screen.display();
+    }
+
+    static void drawStatusPage() {
+      const int16_t W = screen.width(), H = screen.height();
+      screen.fillScreen(uiAccent);
+      screen.setFont(&FreeSansBold18pt7b);
+      screen.setTextSize(1);
+      screen.setTextColor(ATECH_BG);
+      String title = fitText(screen, uiTitle, W - 16);
+      screen.setCursor((W - screen.textWidth(title)) / 2, H / 2 - 4);
+      screen.print(title);
+      if (uiDetail.length()) {
+        drawWrappedText(screen, uiDetail, 0, 12, H / 2 + 14, W - 24, H / 2 - 20, &FreeSans9pt7b, ATECH_BG);
+      }
+      screen.display();
+    }
+
+  setup: |
+    // Port 1-2 is the board's left column, where rotation 1 is upright. On the right
+    // column use 3. The SDK has not measured this: if the screen is upside down, swap it.
+    screen.setRotation(1);
+    talk.setColor(0, 80, 255);
+    confirm.setColor(0, 255, 0);
+    dismiss.setColor(255, 0, 0);
+
+  loop: |
+    if (atech_action == "ui_design") {
+      // One piece of a note: {"o":byte offset,"d":base64}. The laptop sends ui_card when done.
+      long offset = atechNum(atech_value, "o", -1);
+      String piece = atechJsonString(atech_value, "d");
+      size_t written = 0;
+      if (offset < 0 || offset >= (long)NOTE_BYTES) {
+        atechFail("offset is outside the note");
+      } else if (mbedtls_base64_decode(uiNote + offset, NOTE_BYTES - offset, &written,
+                                       (const unsigned char*)piece.c_str(), piece.length()) != 0) {
+        atechFail("bad base64, or too much data for the note");
+      }
+      atechDone();
+    }
+
+    if (atech_action == "ui_card" || atech_action == "ui_status") {
+      uiFullScreen = (atech_action == "ui_status");
+      uiHasNote = atechNum(atech_value, "design", 0) == 1;
+      uiSource = atechJsonString(atech_value, "source");
+      uiFrom = atechJsonString(atech_value, "from");
+      uiTitle = atechJsonString(atech_value, "title");
+      uiDetail = atechJsonString(atech_value, "detail");
+      uiHint = atechJsonString(atech_value, "hint");
+      uiQueue = atechNum(atech_value, "queue", 0);
+      uiAccent = (uint16_t)atechNum(atech_value, "accent", ATECH_ACCENT);
+      uiDirty = true;
+      atechDone();
+    }
+
+    // Light the talk button at once, without waiting for the laptop to answer.
+    static bool talkWasDown = false;
+    bool talkDown = talk.isPressed();
+    if (talkDown != talkWasDown) {
+      talkWasDown = talkDown;
+      if (talkDown) talk.setColor(255, 0, 0); else talk.setColor(0, 80, 255);
+    }
+
+    static EveryTimer frameLimit;
+    if (uiDirty && frameLimit.ready(40)) {
+      uiDirty = false;
+      if (uiFullScreen) drawStatusPage();
+      else if (uiHasNote) drawNoteCard();
+      else drawCard();
+    }
