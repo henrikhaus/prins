@@ -1,6 +1,10 @@
 # Prins
 
-A tiny sticky note printer with a screen and three buttons. Your inbox and your voice go in, a small model turns them into tasks, and you decide with a button what becomes paper. Each note is a 312x216, 1-bit pixel grid, so your agent, or a friend's, can design anything on it.
+Built for the DNB × Founders Hub hackathon on 5 November 2026.
+
+Prins is a tiny sticky note printer with a screen and three buttons. It turns inbox messages into tasks and lets you design notes by voice. Preview a note on the screen, ask for changes, then press a button to print.
+
+We reverse-engineered a sticker printer's Bluetooth protocol to control every pixel. Each 312x216 black-and-white sticker became a 100% customizable canvas for text, drawings, logos, or anything else we want to put on paper.
 
 **200 messages hit your inbox. Five sticky notes reach your desk.**
 
