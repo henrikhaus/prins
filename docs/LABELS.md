@@ -84,16 +84,16 @@ Web pages and your words are both untrusted, so the agent can only draw:
 - `web_fetch` is told not to treat URLs from the agent's own tool results as fair game.
 - A residual risk: the guard resolves the name before downloading, so a hostile DNS server could still swap the address in between.
 
-## Inbox: messages from Henrik
+## Inbox: messages from chosen people
 
-Messages Henrik Hausberg sends you on Slack appear on the desk. `prins labels` asks System Zero's `sz` command (already signed in on this Mac) for news once a second, so there is no Slack app, no open port and no webhook.
+Slack DMs from the people you choose appear on the desk: today Henrik Hausberg and Magnus Krogstad. `prins labels` asks System Zero's `sz` command (already signed in on this Mac) for news once a second, so there is no Slack app, no open port and no webhook.
 
 ```
 Slack ─► System Zero ─► sz msg ls ─► prins labels ─► agent: task note, design, or skip ─► queue ─► screen
 ```
 
-- **Who counts.** Only messages in the configured DM, from the configured Slack user id, not yours, not automated. A display name proves nothing (anyone can copy one), so it is the id that decides. `.env` has `PRINS_INBOX_USER_ID`, `PRINS_INBOX_CONVERSATION` (the DM's id, the end of its Slack URL) and `PRINS_INBOX_NAME` (what is printed as the sender). All three are needed, and `prins doctor` shows whether the inbox is on. `--no-inbox` turns it off.
-- **What it costs System Zero.** Each look is `sz msg ls --limit 3`, about 13 KB. A new message always makes its conversation the newest, so three is enough. Only when the DM has something new does it fetch the whole thread. After a start it looks wide once (60 conversations), in case the DM was busy while the daemon was off.
+- **Who counts.** One entry per person in `PRINS_INBOX` in `.env`, written `USERID:DMID:Name` and separated by semicolons: the person's Slack user id, the id of your DM with them (the end of the DM's Slack URL), and the name printed as the sender. Only messages in that DM from that user id count, not yours, not automated. A display name proves nothing (anyone can copy one), so the ids decide, and a person's id only counts in their own DM. To add someone: open the DM in Slack and copy the id from its URL, and "Copy member ID" from their profile (or read both from `sz msg ls --json`). `prins doctor` lists who is on, and `--no-inbox` turns the inbox off. A new person starts from now: their old messages never print.
+- **What it costs System Zero.** Each look is `sz msg ls` for the 2 + N newest conversations (N people), about 13 KB. A new message always makes its conversation the newest, so that is enough. Only when someone's DM has something new does it fetch that thread. After a start it looks wide once (60 conversations), in case the DM was busy while the daemon was off.
 - **No replays.** The position is saved in `~/.prins/inbox.json`. The first ever run starts from now, so old DMs never print. Messages that arrived while the daemon was off are picked up when it starts, newest ten, up to a day old.
 - **The agent decides what a message becomes** (`design_message` in `labeldesigner.py`): a request or reminder becomes a task note with the action as the headline, in the message's language; a request to make something is designed; chit-chat, thanks, links and codes are skipped and nothing appears.
 - **Who it is from is printed by us.** The strip at the bottom of the note (a line and "from Henrik Hausberg") is drawn after the agent is done, over whatever is there, and the agent is told to leave it empty. The sender comes from our settings, never from the model or the message. The message text is untrusted: the agent can only draw.

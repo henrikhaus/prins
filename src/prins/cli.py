@@ -199,16 +199,19 @@ def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
     maker = LabelMaker(device, stt, designer, printer, save_dir=cfg.labels_dir, max_incoming_per_hour=cfg.inbox_max_per_hour)
     maker.start()
     stop = threading.Event()
-    if cfg.inbox_enabled and not args.no_inbox:
+    if cfg.inbox and not args.no_inbox:
         from .inbox import SzInbox
 
+        try:
+            sources = cfg.inbox_sources
+        except ValueError as exc:
+            sys.exit(f"PRINS_INBOX is not right: {exc}")
         if shutil.which("sz") is None:
-            log.warning("The inbox needs System Zero's `sz` command, which is not on the PATH, so messages from %s will not arrive.", cfg.inbox_name)
+            log.warning("The inbox needs System Zero's `sz` command, which is not on the PATH, so messages will not arrive.")
         else:
-            inbox = SzInbox(user_id=cfg.inbox_user_id, conversation=cfg.inbox_conversation, name=cfg.inbox_name,
-                            state_path=cfg.inbox_state_path, interval=cfg.inbox_interval)
+            inbox = SzInbox(sources=sources, state_path=cfg.inbox_state_path, interval=cfg.inbox_interval)
             threading.Thread(target=inbox.run, args=(maker.incoming, stop), name="inbox", daemon=True).start()
-            log.info("Inbox on: messages from %s become notes here.", cfg.inbox_name)
+            log.info("Inbox on: messages from %s become notes here.", ", ".join(s.name for s in sources))
     log.info("Label maker running%s. Hold button 5 and talk.", " (dry run: nothing is printed)" if args.dry_run else "")
     try:
         threading.Event().wait()
@@ -352,11 +355,15 @@ def cmd_doctor(args: argparse.Namespace, cfg: Config) -> int:
 
     stt_ok = importlib.util.find_spec("faster_whisper") is not None
     line(stt_ok, "Speech to text", f"Whisper {cfg.stt_model}" if stt_ok else 'not installed: pip install -e ".[labels]"')
-    if cfg.inbox_enabled:
-        sz_ok = shutil.which("sz") is not None
-        line(sz_ok, "Inbox", f"{cfg.inbox_name} (DM {cfg.inbox_conversation}) every {cfg.inbox_interval:g} s" if sz_ok else "needs the `sz` command on the PATH")
+    if cfg.inbox:
+        try:
+            names = ", ".join(s.name for s in cfg.inbox_sources)
+            sz_ok = shutil.which("sz") is not None
+            line(sz_ok, "Inbox", f"{names} every {cfg.inbox_interval:g} s" if sz_ok else "needs the `sz` command on the PATH")
+        except ValueError as exc:
+            line(False, "Inbox", f"PRINS_INBOX is not right: {exc}")
     else:
-        line(False, "Inbox", "not configured: PRINS_INBOX_USER_ID, PRINS_INBOX_CONVERSATION and PRINS_INBOX_NAME")
+        line(False, "Inbox", "not configured: set PRINS_INBOX (see .env.example)")
     printer_up = LabelPrinter(cfg.label_printer_url).reachable()
     line(printer_up, "Label printer server", cfg.label_printer_url if printer_up else "not running, `prins labels` starts it")
     line(bool(cfg.slack_bot_token and cfg.slack_app_token), "Slack", "configured" if cfg.slack_bot_token else "not configured")

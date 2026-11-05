@@ -15,7 +15,7 @@ from atech.runtime.transport import encode_action
 from PIL import Image
 
 from prins.design import Canvas, DesignError, assets
-from prins.inbox import Incoming, InboxError, SzInbox
+from prins.inbox import Incoming, InboxError, Source, SzInbox, parse_sources
 from prins.drawing import check_design, thumbnail_2bpp
 from prins.labelboard import LabelBoard
 from prins.labeldesigner import Design, LabelDesigner, LabelDesignError
@@ -835,13 +835,18 @@ def message(text: str, at: float, sender: str = HENRIK, mine: bool = False, auto
 
 
 class FakeSz:
-    """Answers `sz msg ls` and `sz msg thread` from a dict, and counts the calls."""
+    """Answers `sz msg ls` and `sz msg thread` for any number of DMs, and counts the calls."""
 
     def __init__(self, messages: list[dict] | None = None, others: int = 0) -> None:
-        self.messages = messages or []
-        self.others = others            # Conversations that are newer than the DM.
+        self.messages = messages or []          # The messages of the default DM.
+        self.dms: dict[str, list[dict]] = {DM: self.messages}
+        self.others = others                    # Conversations that are newer than every DM.
         self.calls: list[list[str]] = []
         self.fail = False
+
+    def add_dm(self, conversation: str, messages: list[dict]) -> list[dict]:
+        self.dms[conversation] = messages
+        return messages
 
     def __call__(self, args, **kwargs):
         self.calls.append(args)
@@ -850,15 +855,22 @@ class FakeSz:
         if args[2] == "ls":
             limit = int(args[4])
             newest = [{"_id": f"c{i}", "externalId": f"other{i}", "lastMessageAt": 10**13} for i in range(self.others)]
-            dm = {"_id": "dm1", "externalId": DM, "kind": "dm", "lastMessageAt": max([m["sentAt"] for m in self.messages] or [0])}
-            return subprocess.CompletedProcess(args, 0, json.dumps(([*newest, dm])[:limit]), "")
-        assert args[2] == "thread" and args[3] == "dm1"
-        entries = [{"root": m, "replies": [], "threadExternalId": m["externalId"]} for m in self.messages]
+            dms = [{"_id": f"id_{ext}", "externalId": ext, "kind": "dm", "lastMessageAt": max([m["sentAt"] for m in msgs] or [0])}
+                   for ext, msgs in self.dms.items()]
+            dms.sort(key=lambda c: -c["lastMessageAt"])
+            return subprocess.CompletedProcess(args, 0, json.dumps([*newest, *dms][:limit]), "")
+        assert args[2] == "thread" and args[3].startswith("id_")
+        entries = [{"root": m, "replies": [], "threadExternalId": m["externalId"]} for m in self.dms[args[3][3:]]]
         return subprocess.CompletedProcess(args, 0, json.dumps({"conversation": {}, "messages": entries}), "")
 
 
-def inbox(sz: FakeSz, tmp_path, now_ms: float = 1_000_000.0, **kw) -> SzInbox:
-    return SzInbox(user_id=HENRIK, conversation=DM, name="Henrik Hausberg", state_path=tmp_path / "inbox.json",
+HENRIK_SOURCE = Source(HENRIK, DM, "Henrik Hausberg")
+MAGNUS, MAGNUS_DM = "U_MAGNUS", "D_MAGNUS"
+MAGNUS_SOURCE = Source(MAGNUS, MAGNUS_DM, "Magnus Krogstad")
+
+
+def inbox(sz: FakeSz, tmp_path, now_ms: float = 1_000_000.0, sources: list[Source] | None = None, **kw) -> SzInbox:
+    return SzInbox(sources=sources or [HENRIK_SOURCE], state_path=tmp_path / "inbox.json",
                    runner=sz, clock=lambda: now_ms / 1000, interval=0.0, **kw)
 
 
@@ -961,3 +973,80 @@ def test_run_keeps_going_through_errors_and_hands_each_message_on(tmp_path):
     threading.Timer(0.05, lambda: setattr(sz, "fail", False)).start()
     box.run(deliver, stop)
     assert got == ["hello"]
+
+
+# --- more than one person ------------------------------------------------------------------
+
+
+def two_people(tmp_path):
+    sz = FakeSz([message("old", 1)])
+    magnus = sz.add_dm(MAGNUS_DM, [message("old", 2, sender=MAGNUS, ext=f"{MAGNUS_DM}:2")])
+    box = inbox(sz, tmp_path, sources=[HENRIK_SOURCE, MAGNUS_SOURCE])
+    assert box.poll_once() == []                      # The first look only sets each person's starting point.
+    return sz, magnus, box
+
+
+def test_each_person_is_delivered_under_their_own_name(tmp_path):
+    sz, magnus, box = two_people(tmp_path)
+    sz.messages.append(message("from henrik", 1_000_100))
+    magnus.append(message("from magnus", 1_000_200, sender=MAGNUS, ext=f"{MAGNUS_DM}:b"))
+    assert [(m.sender, m.text) for m in box.poll_once()] == [("Henrik Hausberg", "from henrik"), ("Magnus Krogstad", "from magnus")]
+    assert box.poll_once() == []
+
+
+def test_a_persons_id_only_counts_in_their_own_dm(tmp_path):
+    sz, magnus, box = two_people(tmp_path)
+    magnus.append(message("henrik's id in magnus's DM", 1_000_100, sender=HENRIK, ext=f"{MAGNUS_DM}:x"))
+    sz.messages.append(message("magnus's id in henrik's DM", 1_000_200, sender=MAGNUS, ext=f"{DM}:y"))
+    assert box.poll_once() == []
+
+
+def test_one_persons_new_message_does_not_disturb_the_others_position(tmp_path):
+    sz, magnus, box = two_people(tmp_path)
+    magnus.append(message("hello", 1_000_100, sender=MAGNUS, ext=f"{MAGNUS_DM}:c"))
+    assert [m.text for m in box.poll_once()] == ["hello"]
+    sz.messages.append(message("later", 1_000_200))
+    assert [m.sender for m in box.poll_once()] == ["Henrik Hausberg"]
+
+
+def test_a_person_added_later_starts_from_now_and_the_others_keep_their_place(tmp_path):
+    sz = FakeSz([message("old", 1)])
+    first = inbox(sz, tmp_path)
+    first.poll_once()
+    sz.messages.append(message("seen", 1_000_100))
+    assert len(first.poll_once()) == 1
+    magnus = sz.add_dm(MAGNUS_DM, [message("long before", 5, sender=MAGNUS, ext=f"{MAGNUS_DM}:old")])
+    second = inbox(sz, tmp_path, sources=[HENRIK_SOURCE, MAGNUS_SOURCE])
+    assert second.poll_once() == []                    # Magnus's old messages are not replayed, Henrik's is not repeated.
+    magnus.append(message("first one", 1_000_300, sender=MAGNUS, ext=f"{MAGNUS_DM}:new"))
+    assert [(m.sender, m.text) for m in second.poll_once()] == [("Magnus Krogstad", "first one")]
+
+
+def test_the_position_saved_by_the_one_person_version_still_works(tmp_path):
+    (tmp_path / "inbox.json").write_text(json.dumps({"last_at": 1_000_000, "seen": []}))
+    sz = FakeSz([message("while off", 1_000_500)])
+    assert [m.text for m in inbox(sz, tmp_path).poll_once()] == ["while off"]
+
+
+def test_with_two_people_the_look_is_a_little_wider(tmp_path):
+    sz, _magnus, box = two_people(tmp_path)
+    sz.calls.clear()
+    box.poll_once()
+    assert [call[4] for call in sz.calls if call[2] == "ls"] == ["4"]
+
+
+def test_the_inbox_setting_is_a_list_of_user_dm_and_name():
+    spec = "U0BM141R3QX:D0BTS26FXE1:Henrik Hausberg; U0BMEFM8SSJ:D0C6XK76013:Magnus Krogstad ;"
+    assert parse_sources(spec) == [Source("U0BM141R3QX", "D0BTS26FXE1", "Henrik Hausberg"), Source("U0BMEFM8SSJ", "D0C6XK76013", "Magnus Krogstad")]
+    assert parse_sources("") == []
+
+
+@pytest.mark.parametrize("spec", ["U1:D1", "U1::Name", ":D1:Name", "justonething"])
+def test_a_broken_inbox_entry_is_refused_not_guessed(spec):
+    with pytest.raises(ValueError):
+        parse_sources(spec)
+
+
+def test_an_inbox_without_anyone_in_it_is_refused(tmp_path):
+    with pytest.raises(ValueError):
+        SzInbox(sources=[], state_path=tmp_path / "inbox.json")

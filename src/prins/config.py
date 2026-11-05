@@ -45,9 +45,7 @@ class Config:
     label_printer_url: str = "http://127.0.0.1:8110"
     stt_model: str = "turbo"
     stt_language: str = ""
-    inbox_user_id: str = ""
-    inbox_conversation: str = ""
-    inbox_name: str = ""
+    inbox: str = ""
     inbox_interval: float = 1.0
     inbox_max_per_hour: int = 20
     handy_binary: Path = HANDY_BINARY
@@ -81,9 +79,7 @@ class Config:
             label_printer_url=env("PRINS_LABEL_PRINTER_URL", "http://127.0.0.1:8110"),
             stt_model=env("PRINS_STT_MODEL", "turbo"),
             stt_language=env("PRINS_STT_LANGUAGE", ""),
-            inbox_user_id=env("PRINS_INBOX_USER_ID", ""),
-            inbox_conversation=env("PRINS_INBOX_CONVERSATION", ""),
-            inbox_name=env("PRINS_INBOX_NAME", ""),
+            inbox=env("PRINS_INBOX", ""),
             inbox_interval=float(env("PRINS_INBOX_INTERVAL", "1.0")),
             inbox_max_per_hour=int(env("PRINS_INBOX_MAX_PER_HOUR", "20")),
             handy_binary=Path(env("PRINS_HANDY_BINARY", str(HANDY_BINARY))),
@@ -112,8 +108,11 @@ class Config:
         return self.home / "inbox.json"
 
     @property
-    def inbox_enabled(self) -> bool:
-        return bool(self.inbox_user_id and self.inbox_conversation and self.inbox_name)
+    def inbox_sources(self):
+        """The people whose Slack DMs become notes. Raises ValueError if PRINS_INBOX is malformed."""
+        from .inbox import parse_sources
+
+        return parse_sources(self.inbox)
 
     @property
     def labels_dir(self) -> Path:
