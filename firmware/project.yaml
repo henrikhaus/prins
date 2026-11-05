@@ -1,9 +1,10 @@
 # Prins label maker. Hold the talk button and describe a sticky note; the Mac turns the
 # words into a drawing, shows it here and prints it when you press the print button.
 # The Mac owns all the logic (src/prins/labels.py). This firmware streams the microphone
-# while talk is held, draws the screen and runs the lights. Wire protocol: docs/LABELS.md.
+# while talk is held, draws the screen and runs the button lights. Wire protocol: docs/LABELS.md.
 #
-# Port 12 holds the board's own reset button, so no module can go there.
+# Port 12 holds the board's own reset button, so no module can go there. The screen is on 10-11,
+# the pair next to it in the middle of the right column.
 name: prins
 board: 14port
 
@@ -12,8 +13,7 @@ modules:
   - {id: button, instance: discard, port: 4}      # red: throw the design away
   - {id: button, instance: talk, port: 5}         # hold and speak
   - {id: button, instance: printbtn, port: 6}     # green when there is a design to print
-  - {id: neopixel, instance: light, port: 7}
-  - {id: st7735_tft, instance: screen, ports: [9, 10]}   # 160x80
+  - {id: st7735_tft, instance: screen, ports: [10, 11]}  # 160x80
 
 code:
   globals: |
@@ -95,7 +95,7 @@ code:
     static const uint8_t LIGHT_MAX = 40, LIGHT_MIN = 4;   // the SDK caps brightness at 51
 
     struct LightCache { int r = -1, g = -1, b = -1, level = -1; };
-    static LightCache cTalk, cPrint, cDiscard, cGrid;
+    static LightCache cTalk, cPrint, cDiscard;
 
     static uint8_t glow(unsigned long periodMs) {
       float phase = (float)(millis() % periodMs) / (float)periodMs;
@@ -111,30 +111,20 @@ code:
       b.setColor(col.r, col.g, col.b);
     }
 
-    static void applyGrid(Rgb col, uint8_t level) {
-      if (cGrid.r == col.r && cGrid.g == col.g && cGrid.b == col.b && cGrid.level == level) return;
-      cGrid.r = col.r; cGrid.g = col.g; cGrid.b = col.b; cGrid.level = level;
-      if (!col.r && !col.g && !col.b) { light.clear(); light.show(); return; }
-      light.setBrightness(level);
-      light.setAll(col.r, col.g, col.b);
-      light.show();
-    }
-
     static void updateLights() {
-      Rgb talkC = OFF, printC = OFF, gridC = OFF, discardC = uiHasDesign ? RED : OFF;
-      uint8_t talkL = LIGHT_MAX, printL = LIGHT_MAX, gridL = LIGHT_MAX;
+      Rgb talkC = OFF, printC = OFF, discardC = uiHasDesign ? RED : OFF;
+      uint8_t talkL = LIGHT_MAX, printL = LIGHT_MAX;
       switch (uiState) {
         case S_LISTENING: talkC = RED; break;
-        case S_THINKING:  talkC = YELLOW; gridC = YELLOW; talkL = gridL = glow(1600); break;
-        case S_READY:     talkC = YELLOW; printC = GREEN; gridC = GREEN; break;
-        case S_PRINTING:  printC = GREEN; gridC = GREEN; printL = gridL = glow(900); discardC = OFF; break;
-        case S_ERROR:     talkC = YELLOW; gridC = RED; gridL = glow(500); break;
+        case S_THINKING:  talkC = YELLOW; talkL = glow(1600); break;
+        case S_READY:     talkC = YELLOW; printC = GREEN; break;
+        case S_PRINTING:  printC = GREEN; printL = glow(900); discardC = OFF; break;
+        case S_ERROR:     talkC = RED; talkL = glow(500); break;
         default: break;
       }
       applyButton(talk, cTalk, talkC, talkL);
       applyButton(printbtn, cPrint, printC, printL);
       applyButton(discard, cDiscard, discardC, LIGHT_MAX);
-      applyGrid(gridC, gridL);
     }
 
     // ---- Screen (160x80, built-in 6x8 font) ----------------------------------------
@@ -222,7 +212,6 @@ code:
     talk.setBrightness(LIGHT_MAX);
     printbtn.setBrightness(LIGHT_MAX);
     discard.setBrightness(LIGHT_MAX);
-    light.setBrightness(LIGHT_MAX);
     // Landscape. Rotation 3 was upside down in ports 9-10; if that changes, swap 1 and 3.
     screen.setRotation(1);
 

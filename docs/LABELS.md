@@ -22,21 +22,20 @@ Put `ANTHROPIC_API_KEY` in `.env`. Only one program can hold the board's USB por
 | 4 | button | `discard` | Red when there is a design: throws it away |
 | 5 | button | `talk` | Hold to speak. Yellow when you can hold again to edit |
 | 6 | button | `printbtn` | Green when there is a design to print |
-| 7 | NeoPixel 3x3 | `light` | Status |
-| 9-10 | ST7735 160x80 | `screen` | Thumbnail of the design |
+| 10-11 | ST7735 160x80 | `screen` | Thumbnail of the design. Middle of the right column, next to the Restart button |
 
-Port 12 holds the board's reset button, so no module can go there. The buttons need V2.0 for coloured lights.
+Port 12 holds the board's reset button, so no module can go there, and a two-port module cannot straddle it: the screen's only central spot is 10-11 (13-14 is the other free pair on that side). Port 7 is free. The buttons need V2.0 for coloured lights.
 
 ## States
 
-| State | Button 5 | Button 6 | Button 4 | Light 7 | Screen |
-|---|---|---|---|---|---|
-| idle | off | off | off | off | "Hold button 5..." |
-| listening | red | off | red if a design exists | off | Listening |
-| thinking | glowing yellow | off | red if a design exists | glowing yellow | what it heard |
-| ready | yellow | green | red | green | thumbnail |
-| printing | off | glowing green | off | glowing green | thumbnail |
-| error | yellow | off | red if a design exists | blinking red | reason |
+| State | Button 5 | Button 6 | Button 4 | Screen |
+|---|---|---|---|---|
+| idle | off | off | off | "Hold button 5..." |
+| listening | red | off | red if a design exists | Listening |
+| thinking | glowing yellow | off | red if a design exists | what it heard |
+| ready | yellow | green | red | thumbnail |
+| printing | off | glowing green | off | thumbnail |
+| error | glowing red | off | red if a design exists | reason |
 
 Holding 5 again revises the current design with the new instruction. Button 4 starts over. After a print the design stays, so 6 prints another copy. Errors go back to the resting screen after 8 seconds and never lose the design.
 
