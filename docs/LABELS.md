@@ -46,7 +46,8 @@ Holding 5 again revises the current design with the new instruction. Button 4 st
 hold 5 ─► board streams 16 kHz PCM ─► Mac: Whisper (local) ─► text
        let go                                                  │
                                                                ▼
-   screen thumbnail ◄─ Mac renders 1-bit PNG ◄─ Claude draws shapes (and sees the current design)
+   screen thumbnail ◄─ Mac renders 1-bit PNG ◄─ Claude draws with the design engine, can search the web,
+                                                  and sees the current design
    press 6 ─► POST /print/png on printer/server.py ─► M110 over BLE
 ```
 
@@ -54,14 +55,25 @@ hold 5 ─► board streams 16 kHz PCM ─► Mac: Whisper (local) ─► text
 |---|---|
 | `firmware/project.yaml` | Microphone streaming, lights, screen |
 | `src/prins/labels.py` | The state machine. Start here |
-| `src/prins/designer.py` | The drawing agent: prompt, shape schema, retries |
-| `src/prins/drawing.py` | Renders shapes to a 1-bit image, checks them, makes the thumbnail |
+| `src/prins/labeldesigner.py` | The drawing agent: prompt, tool loop, web search, revising |
+| `src/prins/design/` | The design engine (figures, logos, SVG, QR, fonts) that the agent draws with |
+| `src/prins/drawing.py` | Quality checks on a finished design, and the thumbnail |
 | `src/prins/stt.py` | Local Whisper (`faster-whisper`) |
 | `src/prins/labelboard.py` | Board protocol |
 | `src/prins/labelprinter.py` | Printer server client, starts it if needed |
 | `src/prins/mictest.py` | `prins mic-test` |
 
-The agent returns the whole design each time as shapes (`text`, `rect`, `ellipse`, `polygon`, `polyline`). Each draw is checked for text running off the label, text under 16 px, a blank label and a mostly black one. Problems go back to the agent for up to two more tries. The spoken text is untrusted: the agent can only return a drawing.
+The agent draws with the engine's tools (`draw_batch`, `draw_logo`, `draw_svg`, `draw_image`, `draw_text`, `preview`, ...), looks at its work with `preview`, and ends by calling `finish(title, summary)`. A design is the list of ops it drew. Holding talk again puts those ops back on the canvas and gives the agent the picture plus your new instruction. `finish` runs two checks and sends problems back (up to two times): a blank label or one that is more than 60% black, and text under 16 px.
+
+## Web access
+
+The agent can search the web and read pages (Anthropic's `web_search` and `web_fetch`, at most 3 of each per design) to find out what real things look like or say. It is told to search only when you name something real it cannot draw from knowledge. A search costs about one US cent. `draw_logo` covers brands without searching. `prins labels --no-web` or `prins label-draw --no-web` turns the web off.
+
+Web pages and your words are both untrusted, so the agent can only draw:
+- It has no print, save, send or file tools. Nothing prints until you press 6, and you see the thumbnail first.
+- Images and SVGs it loads from a URL go through a guard (`check_public_url` in `design/assets.py`): public `http(s)` addresses on ports 80 and 443 only, no logins in the URL, no loopback, home network, link-local or cloud-metadata addresses, and every redirect hop is checked. Local files are refused. SVGs that link to other files are refused.
+- `web_fetch` is told not to treat URLs from the agent's own tool results as fair game.
+- A residual risk: the guard resolves the name before downloading, so a hostile DNS server could still swap the address in between.
 
 ## Board protocol
 

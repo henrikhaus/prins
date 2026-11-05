@@ -64,10 +64,12 @@ def _int(op: Op, key: str, default: int) -> int:
 
 
 class Canvas:
-    """external=False stops a design reading files or the network, for untrusted callers."""
+    """external=False stops a design reading files or the network, for untrusted callers.
+    web=True lets such a design load public web addresses, and nothing else outside itself."""
 
-    def __init__(self, external: bool = True) -> None:
+    def __init__(self, external: bool = True, web: bool = False) -> None:
         self.external = external
+        self.web = web
         self.image = Image.new("1", (WIDTH, HEIGHT), 1)
         self.ops: list[Op] = []
 
@@ -242,7 +244,7 @@ class Canvas:
         src = op.get("src")
         if not src:
             raise DesignError("image needs a src: URL, file path, or base64.")
-        data = assets.read_source(str(src), self.external)
+        data = assets.read_source(str(src), self.external, self.web)
         if not self.external:
             assets.refuse_outside_references(data)
         self._draw_raster(data, op, default_dither="atkinson", fit="contain")
@@ -256,7 +258,7 @@ class Canvas:
         elif op.get("svg"):
             data = str(op["svg"]).encode()
         elif op.get("src"):
-            data = assets.read_source(str(op["src"]), self.external)
+            data = assets.read_source(str(op["src"]), self.external, self.web)
         else:
             raise DesignError("svg needs d (path data), svg (markup), or src (URL or path).")
         if not self.external:

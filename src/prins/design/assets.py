@@ -6,8 +6,11 @@ import base64
 import binascii
 import hashlib
 import io
+import ipaddress
 import re
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 from functools import lru_cache
 from pathlib import Path
@@ -117,16 +120,20 @@ def pixel_font() -> ImageFont.ImageFont:
 PIXEL_HEIGHT = _PIXEL_FONT_HEIGHT
 
 
-def read_source(src: str, external: bool) -> bytes:
-    """A URL, a local path, or inline `data:` / raw base64."""
+def read_source(src: str, external: bool, web: bool = False) -> bytes:
+    """A URL, a local path, or inline `data:` / raw base64.
+
+    `web` allows public web URLs without allowing files or the local network, for a design
+    that an untrusted instruction or web page can steer. `external` allows everything.
+    """
     if src.startswith("data:"):
         return _decode_base64(src.split(",", 1)[-1])
     if src.lstrip().startswith("<svg") or src.lstrip().startswith("<?xml"):
         return src.encode()
     if src.startswith(("http://", "https://")):
-        if not external:
+        if not (external or web):
             raise AssetError("This design can't load from the network.")
-        return _download(src)
+        return _download(src, guarded=not external)
     if external and len(src) < 1024 and Path(src).expanduser().is_file():
         path = Path(src).expanduser()
         if path.stat().st_size > MAX_DOWNLOAD_BYTES:
@@ -146,14 +153,48 @@ def _decode_base64(text: str) -> bytes:
         raise AssetError("That isn't valid base64.") from exc
 
 
-def _download(url: str) -> bytes:
+def check_public_url(url: str) -> None:
+    """Refuse anything that is not an ordinary public web address: this machine, the home
+    network, link-local and cloud metadata addresses, odd ports, and non-http schemes."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise AssetError("Only http and https web addresses can be loaded.")
+    if parts.username or parts.password:
+        raise AssetError("Web addresses with a login in them can't be loaded.")
+    try:
+        port = parts.port
+    except ValueError as exc:
+        raise AssetError(f"{url} has a bad port.") from exc
+    if port not in (None, 80, 443):
+        raise AssetError("Only the standard web ports can be loaded.")
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo(parts.hostname, port or 443, type=socket.SOCK_STREAM)}
+    except socket.gaierror as exc:
+        raise AssetError(f"Couldn't find {parts.hostname}.") from exc
+    for address in addresses:
+        if not ipaddress.ip_address(address.split("%")[0]).is_global:
+            raise AssetError(f"{parts.hostname} is not a public web address, so it can't be loaded.")
+
+
+class _GuardedRedirects(urllib.request.HTTPRedirectHandler):
+    """Every hop of a redirect has to pass the same check as the first address."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_public_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _download(url: str, guarded: bool = False) -> bytes:
+    if guarded:
+        check_public_url(url)
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     cached = CACHE_DIR / hashlib.sha256(url.encode()).hexdigest()
     if cached.exists():
         return cached.read_bytes()
     request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
+    opener = urllib.request.build_opener(_GuardedRedirects) if guarded else urllib.request.build_opener()
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
+        with opener.open(request, timeout=15) as response:
             data = response.read(MAX_DOWNLOAD_BYTES + 1)
     except (urllib.error.URLError, OSError) as exc:
         raise AssetError(f"Couldn't download {url}: {exc}") from exc

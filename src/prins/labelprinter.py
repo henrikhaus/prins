@@ -14,7 +14,8 @@ from typing import Optional
 
 from PIL import Image
 
-from .drawing import CANVAS_HEIGHT, CANVAS_WIDTH, png_bytes
+from .design import HEIGHT as CANVAS_HEIGHT, WIDTH as CANVAS_WIDTH
+from .drawing import png_bytes
 
 log = logging.getLogger(__name__)
 

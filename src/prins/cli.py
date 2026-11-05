@@ -173,8 +173,8 @@ def _sim_prompt(device: SimDevice) -> None:
 
 def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
     """The label maker: starts the printer server and the board loop together."""
-    from .designer import Designer
     from .labelboard import LabelBoard
+    from .labeldesigner import LabelDesigner
     from .labels import LabelMaker
     from .stt import WhisperTranscriber
 
@@ -185,7 +185,7 @@ def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
             server.start()
         except PrinterError as exc:
             log.warning("%s Designs still work and are saved to %s, but printing will fail.", exc, cfg.labels_dir)
-    designer = Designer.from_env(cfg.label_model, printer.canvas())
+    designer = LabelDesigner.from_env(cfg.label_model, web=not args.no_web)
     stt = WhisperTranscriber(cfg.stt_model, cfg.stt_language)
 
     def warm() -> None:
@@ -210,17 +210,14 @@ def cmd_labels(args: argparse.Namespace, cfg: Config) -> int:
 
 def cmd_label_draw(args: argparse.Namespace, cfg: Config) -> int:
     """Ask the drawing agent for a design without any hardware. Saves a PNG and prints the shapes."""
-    from .designer import Design, Designer, DesignError
-    from .drawing import render_design
+    from .design import DesignError
+    from .labeldesigner import Design, LabelDesigner
 
-    designer = Designer.from_env(cfg.label_model, LabelPrinter(cfg.label_printer_url).canvas())
-    current = None
-    if args.start_from:
-        ops = json.loads(Path(args.start_from).read_text())
-        current = Design(ops, "", "", render_design(ops, designer.size))
+    designer = LabelDesigner.from_env(cfg.label_model, web=not args.no_web)
     try:
+        current = Design.from_ops(json.loads(Path(args.start_from).read_text())) if args.start_from else None
         design = designer.design(args.instruction, current)
-    except DesignError as exc:
+    except (DesignError, OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     out = Path(args.output) if args.output else cfg.labels_dir / f"draw-{time.strftime('%Y%m%d-%H%M%S')}.png"
@@ -373,11 +370,13 @@ def main(argv: list[str] | None = None) -> int:
 
     labels = sub.add_parser("labels", help="the label maker: talk to design a label, print it from the board")
     labels.add_argument("--dry-run", action="store_true", help="the printer server accepts prints but prints nothing")
+    labels.add_argument("--no-web", action="store_true", help="the drawing agent may not search or read the web")
     labels.add_argument("--no-server", action="store_true", help="do not start printer/server.py, it is running already")
     labels.set_defaults(func=cmd_labels)
     draw = sub.add_parser("label-draw", help="ask the drawing agent for one label design, without the board")
     draw.add_argument("instruction")
     draw.add_argument("--from", dest="start_from", help="a JSON file of shapes to revise")
+    draw.add_argument("--no-web", action="store_true", help="the agent may not search or read the web")
     draw.add_argument("-o", "--output", help="where to save the PNG")
     draw.set_defaults(func=cmd_label_draw)
     mic = sub.add_parser("mic-test", help="hold button 5 and hear what the board's microphone picked up")

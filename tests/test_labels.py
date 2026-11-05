@@ -1,9 +1,10 @@
-"""The label maker: drawing, the drawing agent, the state machine and the wire format."""
+"""The label maker: the drawing agent, the state machine and the wire format."""
 
 from __future__ import annotations
 
 import base64
 import json
+import socket
 from types import SimpleNamespace
 
 import pytest
@@ -11,13 +12,16 @@ from atech.runtime.models import Action
 from atech.runtime.transport import encode_action
 from PIL import Image
 
-from prins.designer import Design, Designer, DesignError, DesignOut, Op
-from prins.drawing import CANVAS_HEIGHT, CANVAS_WIDTH, render_design, thumbnail_2bpp
+from prins.design import Canvas, DesignError, assets
+from prins.drawing import check_design, thumbnail_2bpp
 from prins.labelboard import LabelBoard
+from prins.labeldesigner import Design, LabelDesigner, LabelDesignError
 from prins.labelprinter import PrinterError
 from prins.labels import ERROR, IDLE, LISTENING, PRINTING, READY, THINKING, LabelMaker
 
-HEADLINE = {"type": "text", "x": 156, "y": 20, "text": "Dentist", "size": 48, "bold": True, "align": "center"}
+HEADLINE = {"op": "text", "s": "Dentist", "x": 8, "y": 20, "w": 296, "h": 60, "align": "c"}
+TINY = {"op": "text", "s": "tiny print " * 6, "x": 4, "y": 4, "w": 304, "h": 60, "size": 10}
+BOX = {"op": "shape", "kind": "rrect", "x": 4, "y": 4, "w": 304, "h": 208, "r": 12, "fill": False, "lw": 4}
 
 
 def wire(key: str, value) -> str:
@@ -25,60 +29,31 @@ def wire(key: str, value) -> str:
 
 
 def make_design(ops=None, title="Dentist", summary="Drew it") -> Design:
-    ops = ops if ops is not None else [HEADLINE]
-    rendered = render_design(ops)
-    return Design(ops, title, summary, rendered, rendered.warnings)
+    return Design.from_ops(ops if ops is not None else [HEADLINE], title, summary)
 
 
-# --- drawing ------------------------------------------------------------------------
+# --- checks and thumbnail ---------------------------------------------------------------
 
 
-def test_render_is_one_bit_and_label_sized():
-    out = render_design([HEADLINE, {"type": "rect", "x": 4, "y": 4, "w": 304, "h": 208, "radius": 12}])
-    assert out.image.mode == "1" and out.image.size == (CANVAS_WIDTH, CANVAS_HEIGHT)
-    assert out.warnings == []
-    assert 0.02 < out.ink < 0.5
+def test_a_normal_design_passes_the_checks():
+    canvas = Canvas(external=False)
+    canvas.apply_all([HEADLINE, BOX])
+    assert check_design(canvas) == []
 
 
-def test_text_running_off_the_label_comes_back_as_a_warning_the_model_can_act_on():
-    out = render_design([{"type": "text", "x": 10, "y": 10, "text": "x" * 60, "size": 40}])
-    assert any("right edge" in w for w in out.warnings)
-
-
-def test_tiny_text_blank_labels_and_solid_black_are_flagged():
-    assert any("at least" in w for w in render_design([{"type": "text", "x": 5, "y": 5, "text": "tiny", "size": 8}]).warnings)
-    assert any("blank" in w for w in render_design([]).warnings)
-    assert any("black" in w for w in render_design([{"type": "rect", "x": 0, "y": 0, "w": 312, "h": 216, "fill": "black"}]).warnings)
-
-
-def test_bad_ops_are_reported_not_raised():
-    out = render_design([{"type": "circle"}, {"type": "rect", "x": 1}, {"type": "polygon", "points": "no"}, HEADLINE])
-    assert len(out.warnings) == 3
-
-
-def test_every_shape_draws():
-    ops = [
-        {"type": "rect", "x": 10, "y": 10, "w": 80, "h": 60, "fill": "gray"},
-        {"type": "ellipse", "x": 100, "y": 10, "w": 60, "h": 60, "fill": "light"},
-        {"type": "polygon", "points": [[200, 70], [230, 10], [260, 70]], "fill": "black"},
-        {"type": "polyline", "points": [[10, 100], [150, 130], [300, 100]], "width": 4},
-        {"type": "text", "x": 20, "y": 150, "text": "Blåbær Ærlig Øl", "size": 30},
-    ]
-    out = render_design(ops)
-    assert out.warnings == []
-
-
-def test_white_text_on_a_black_banner_is_visible():
-    plain = render_design([{"type": "rect", "x": 10, "y": 10, "w": 290, "h": 70, "fill": "black"}]).ink
-    knocked = render_design([
-        {"type": "rect", "x": 10, "y": 10, "w": 290, "h": 70, "fill": "black"},
-        {"type": "text", "x": 155, "y": 20, "text": "SALE", "size": 48, "bold": True, "align": "center", "color": "white"},
-    ]).ink
-    assert knocked < plain
+def test_blank_solid_black_and_tiny_text_are_flagged():
+    blank = Canvas(external=False)
+    assert any("blank" in w for w in check_design(blank))
+    black = Canvas(external=False)
+    black.apply({"op": "shape", "kind": "rect", "fill": True})
+    assert any("black" in w for w in check_design(black))
+    tiny = Canvas(external=False)
+    tiny.apply(TINY)
+    assert any("at least" in w for w in check_design(tiny))
 
 
 def test_thumbnail_fits_the_screen_and_one_serial_line():
-    width, height, data = thumbnail_2bpp(render_design([HEADLINE]).image)
+    width, height, data = thumbnail_2bpp(make_design().image)
     assert width <= 120 and height <= 80
     assert len(data) == ((width + 3) // 4) * height <= 2400
     line = wire("ui_preview", f"{width},{height}:{base64.b64encode(data).decode()}")
@@ -91,65 +66,184 @@ def test_thumbnail_keeps_black_black_and_white_white():
     assert set(black) == {0x00} and set(white) == {0xFF}
 
 
+# --- the web guard --------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:8110/canvas",
+    "http://localhost/x",
+    "http://10.0.0.5/x",
+    "http://192.168.1.1/x",
+    "http://169.254.169.254/latest/meta-data",
+    "http://[::1]/x",
+    "http://example.com:8080/x",
+    "http://user:pw@example.com/x",
+    "ftp://example.com/x",
+    "file:///etc/hosts",
+])
+def test_the_web_guard_refuses_anything_that_is_not_a_public_web_address(url, monkeypatch):
+    with pytest.raises(assets.AssetError):
+        assets.check_public_url(url)
+
+
+def test_a_public_address_passes_and_a_name_that_resolves_inside_does_not(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, **kw: [(2, 1, 6, "", ("93.184.216.34", 443))])
+    assets.check_public_url("https://example.com/logo.svg")
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port, **kw: [(2, 1, 6, "", ("192.168.0.9", 443))])
+    with pytest.raises(assets.AssetError):
+        assets.check_public_url("https://innocent.example.com/logo.svg")
+
+
+def test_a_redirect_to_the_local_network_is_refused(monkeypatch):
+    handler = assets._GuardedRedirects()
+    with pytest.raises(assets.AssetError):
+        handler.redirect_request(SimpleNamespace(), None, 302, "Found", {}, "http://127.0.0.1:8737/v1/messages")
+
+
+def test_web_mode_loads_no_files_and_the_plain_untrusted_mode_loads_no_network():
+    web = Canvas(external=False, web=True)
+    with pytest.raises(DesignError):
+        web.apply({"op": "image", "src": "/etc/hosts"})
+    with pytest.raises(DesignError):
+        web.apply({"op": "image", "src": "http://127.0.0.1:8110/canvas"})
+    plain = Canvas(external=False)
+    with pytest.raises(DesignError):
+        plain.apply({"op": "image", "src": "https://example.com/a.png"})
+
+
 # --- the drawing agent ---------------------------------------------------------------
 
 
-class FakeClient:
-    """Stands in for anthropic.Anthropic: answers each messages.parse call from a script."""
+def call(name: str, **args) -> SimpleNamespace:
+    call.n = getattr(call, "n", 0) + 1
+    return SimpleNamespace(type="tool_use", id=f"toolu_{call.n}", name=name, input=args)
 
-    def __init__(self, *answers: DesignOut) -> None:
+
+def reply(*blocks, stop="tool_use") -> SimpleNamespace:
+    return SimpleNamespace(stop_reason=stop, content=list(blocks))
+
+
+def finish(title="Dentist", summary="Drew it") -> SimpleNamespace:
+    return call("finish", title=title, summary=summary)
+
+
+class FakeClient:
+    """Stands in for anthropic.Anthropic: answers each messages.create call from a script."""
+
+    def __init__(self, *answers) -> None:
         self.answers = list(answers)
         self.calls: list[dict] = []
-        self.messages = SimpleNamespace(parse=self._parse)
+        self.messages = SimpleNamespace(create=self._create)
 
-    def _parse(self, **kwargs):
-        self.calls.append(kwargs)
-        return SimpleNamespace(parsed_output=self.answers.pop(0), stop_reason="end_turn")
+    def _create(self, **kwargs):
+        self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
+        return self.answers.pop(0)
 
-
-def out(*ops: Op, title="Dentist", summary="Drew it") -> DesignOut:
-    return DesignOut(title=title, summary=summary, ops=list(ops))
-
-
-GOOD = Op(type="text", x=156, y=20, text="Dentist", size=48, bold=True, align="center")
-TOO_WIDE = Op(type="text", x=10, y=20, text="x" * 60, size=48)
+    def tool_names(self, n: int = 0) -> set[str]:
+        return {t["name"] for t in self.calls[n]["tools"]}
 
 
-def test_designer_returns_a_clean_first_design_in_one_call():
-    client = FakeClient(out(GOOD))
-    design = Designer(client).design("a label that says dentist")
-    assert len(client.calls) == 1 and design.title == "Dentist" and design.warnings == []
-    assert "<spoken_instruction>" in client.calls[0]["messages"][0]["content"][-1]["text"]
+def draw(*ops) -> SimpleNamespace:
+    return call("draw_batch", ops=list(ops))
 
 
-def test_designer_shows_the_model_its_problems_and_takes_the_fix():
-    client = FakeClient(out(TOO_WIDE), out(GOOD))
-    design = Designer(client).design("dentist")
-    assert len(client.calls) == 2 and design.warnings == []
+def test_the_agent_draws_then_finishes():
+    client = FakeClient(reply(draw(HEADLINE)), reply(finish()))
+    design = LabelDesigner(client).design("a label that says dentist")
+    assert len(client.calls) == 2 and design.title == "Dentist" and design.summary == "Drew it" and design.warnings == []
+    assert design.ops == [HEADLINE] and design.image.mode == "1"
+    first = client.calls[0]["messages"][0]["content"][-1]["text"]
+    assert "<spoken_instruction>" in first and "a label that says dentist" in first
+
+
+def test_the_agent_can_search_and_fetch_the_web_but_not_print_or_read_files():
+    client = FakeClient(reply(draw(HEADLINE)), reply(finish()))
+    LabelDesigner(client).design("dentist")
+    names = client.tool_names()
+    assert {"web_search", "web_fetch", "draw_batch", "draw_logo", "draw_image", "preview", "finish"} <= names
+    assert not names & {"print_note", "send_to_friend", "list_friends", "save_design", "load_design"}
+    searches = {t["name"]: t for t in client.calls[0]["tools"]}
+    assert searches["web_search"]["max_uses"] == 3 and searches["web_fetch"]["max_uses"] == 3
+    assert searches["web_fetch"]["url_sources"] == {"client_tool_results": {"type": "none"}}
+
+
+def test_web_can_be_turned_off():
+    client = FakeClient(reply(draw(HEADLINE)), reply(finish()))
+    LabelDesigner(client, web=False).design("dentist")
+    assert not client.tool_names() & {"web_search", "web_fetch"}
+
+
+def test_finish_is_sent_back_with_problems_and_the_fix_is_taken():
+    tiny = TINY
+    client = FakeClient(reply(draw(tiny), finish()), reply(call("clear"), draw(HEADLINE)), reply(finish()))
+    design = LabelDesigner(client).design("dentist")
+    assert len(client.calls) == 3 and design.warnings == [] and design.ops == [HEADLINE]
     feedback = client.calls[1]["messages"][-1]["content"]
-    assert "right edge" in feedback
+    assert any("at least" in str(block["content"]) and block.get("is_error") for block in feedback)
 
 
-def test_designer_gives_up_after_three_tries_but_keeps_the_last_design():
-    client = FakeClient(out(TOO_WIDE), out(TOO_WIDE), out(TOO_WIDE))
-    design = Designer(client).design("dentist")
+def test_the_agent_gets_two_fixes_then_what_it_drew_is_accepted_with_the_problems_noted():
+    tiny = TINY
+    client = FakeClient(reply(draw(tiny), finish()), reply(finish()), reply(finish()))
+    design = LabelDesigner(client).design("dentist")
     assert len(client.calls) == 3 and design.warnings
 
 
-def test_designer_sends_the_current_design_as_picture_and_shapes_when_revising():
-    client = FakeClient(out(GOOD))
-    current = make_design()
-    Designer(client).design("make it bigger", current, history=["a dentist label"])
+def test_a_paused_search_turn_is_resumed_without_adding_a_user_message():
+    paused = reply(SimpleNamespace(type="server_tool_use", id="srv_1", name="web_search", input={"query": "x"}), stop="pause_turn")
+    client = FakeClient(paused, reply(draw(HEADLINE)), reply(finish()))
+    LabelDesigner(client).design("the Oslo marathon")
+    resumed = client.calls[1]["messages"]
+    assert resumed[-1]["role"] == "assistant" and resumed[-1]["content"] == paused.content
+
+
+def test_assistant_turns_are_sent_back_exactly_as_received():
+    first = reply(SimpleNamespace(type="text", text="Looking that up"), draw(HEADLINE))
+    client = FakeClient(first, reply(finish()))
+    LabelDesigner(client).design("dentist")
+    assert client.calls[1]["messages"][1] == {"role": "assistant", "content": first.content}
+
+
+def test_revising_puts_the_current_design_back_and_shows_the_agent_picture_and_shapes():
+    current = make_design([HEADLINE])
+    box = BOX
+    client = FakeClient(reply(draw(box)), reply(finish("Dentist", "Added a frame")))
+    design = LabelDesigner(client).design("add a frame", current, history=["a dentist label"])
     content = client.calls[0]["messages"][0]["content"]
     assert content[0]["type"] == "image"
-    assert json.dumps(current.ops) in content[-1]["text"] and "a dentist label" in content[-1]["text"]
+    assert "a dentist label" in content[-1]["text"] and '"op":"text"' in content[-1]["text"]
+    assert design.ops == [HEADLINE, box]
 
 
-def test_a_blank_design_is_an_error_and_so_is_no_model():
-    with pytest.raises(DesignError):
-        Designer(FakeClient(out(), out(), out())).design("nothing")
-    with pytest.raises(DesignError):
-        Designer(None).design("anything")
+def test_a_design_that_cannot_be_replayed_is_kept_as_its_picture():
+    base = make_design([HEADLINE])
+    broken = Design([{"op": "image", "src": "http://127.0.0.1/gone.png"}], "x", "", base.image, [])
+    client = FakeClient(reply(finish()))
+    design = LabelDesigner(client).design("keep it", broken)
+    assert design.image.tobytes() == base.image.tobytes()
+
+
+def test_a_tool_the_agent_may_not_use_or_a_bad_call_comes_back_as_an_error_not_a_crash():
+    client = FakeClient(reply(call("print_note", title="x"), call("draw_logo"), draw(HEADLINE)), reply(finish()))
+    design = LabelDesigner(client).design("dentist")
+    results = client.calls[1]["messages"][-1]["content"]
+    assert [r.get("is_error") for r in results] == [True, True, None]
+    assert design.ops == [HEADLINE]
+
+
+def test_no_key_a_refusal_and_an_empty_label_are_errors():
+    with pytest.raises(LabelDesignError):
+        LabelDesigner(None).design("anything")
+    with pytest.raises(LabelDesignError):
+        LabelDesigner(FakeClient(reply(stop="refusal"))).design("anything")
+    with pytest.raises(LabelDesignError):
+        LabelDesigner(FakeClient(reply(finish()), reply(finish()), reply(finish()))).design("nothing drawn")
+
+
+def test_if_the_agent_forgets_to_finish_what_it_drew_is_still_used():
+    client = FakeClient(reply(draw(HEADLINE)), reply(SimpleNamespace(type="text", text="done"), stop="end_turn"))
+    design = LabelDesigner(client).design("dentist")
+    assert design.title == "Label" and design.ops == [HEADLINE]
 
 
 # --- the label maker -----------------------------------------------------------------
@@ -402,7 +496,7 @@ def test_state_is_sent_as_plain_ascii_the_firmware_can_read():
 
 def test_preview_is_one_line_with_size_up_front():
     raw = RecordingBoard()
-    LabelBoard(board=raw).show_preview(render_design([HEADLINE]).image)
+    LabelBoard(board=raw).show_preview(make_design().image)
     key, value = raw.sent[0]
     head, _, body = value.partition(":")
     width, height = (int(n) for n in head.split(","))

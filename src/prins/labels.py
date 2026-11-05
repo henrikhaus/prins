@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from typing import Callable, Optional
 
-from .designer import Design, Designer
+from .labeldesigner import Design, LabelDesigner
 from .labelboard import LabelDevice
 from .labelprinter import LabelPrinter, PrinterError
 from .stt import SAMPLE_RATE, Transcriber
@@ -44,7 +44,7 @@ class LabelMaker:
         self,
         device: LabelDevice,
         stt: Transcriber,
-        designer: Designer,
+        designer: LabelDesigner,
         printer: LabelPrinter,
         save_dir: Optional[Path] = None,
         synchronous: bool = False,
